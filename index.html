@@ -10,30 +10,20 @@
   <main class="app-shell">
     <section class="game-card">
       <header class="hud">
-        <div class="hud-block">
-          <p class="hud-label">Hearts</p>
-          <div class="hearts" id="hearts">
-            <div class="heart-slot intact" data-heart-index="0">
-              <span class="heart-half left">♥</span>
-              <span class="heart-half right">♥</span>
-            </div>
-            <div class="heart-slot intact" data-heart-index="1">
-              <span class="heart-half left">♥</span>
-              <span class="heart-half right">♥</span>
-            </div>
-            <div class="heart-slot intact" data-heart-index="2">
-              <span class="heart-half left">♥</span>
-              <span class="heart-half right">♥</span>
-            </div>
+        <div class="hud-block timer-block">
+          <p class="hud-label">Slice Time</p>
+          <div class="time-bar">
+            <div id="timeBarFill" class="time-bar-fill"></div>
           </div>
+          <p id="timeValue" class="time-value">3.0s</p>
         </div>
         <div class="hud-block combo-block">
           <p class="hud-label">Combo</p>
           <p class="combo-value" id="comboValue">0x</p>
         </div>
         <div class="hud-block coins-block">
-          <p class="hud-label">Coins</p>
-          <p class="coins-value" id="coinsValue">0</p>
+          <p class="hud-label">Score</p>
+          <p class="coins-value" id="scoreValue">0</p>
         </div>
       </header>
 
@@ -49,7 +39,7 @@
     <div class="overlay-card menu-card">
       <p class="eyebrow">Arcade Endless</p>
       <h1>Line Slice Balls</h1>
-      <p class="overlay-copy">Slice the CPU line, chain combos, and survive with 3 hearts.</p>
+      <p class="overlay-copy">Slice the CPU line every 3 seconds to survive and stack your combo.</p>
       <p class="wallet-text" id="menuWalletText">Coins: 0</p>
       <p class="wallet-text" id="menuRecordText">Record: 0</p>
       <div class="overlay-buttons">

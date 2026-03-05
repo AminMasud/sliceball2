@@ -7,10 +7,10 @@
   });
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
-  const MAX_HEARTS = 3;
-  const OBSTACLE_UNLOCK_SLICES = 25;
-  const SECOND_OBSTACLE_UNLOCK_SLICES = 50;
-  const ARROW_UNLOCK_SLICES = 75;
+  const SLICE_TIMEOUT_SECONDS = 3;
+  const OBSTACLE_UNLOCK_SLICES = 5;
+  const SECOND_OBSTACLE_UNLOCK_SLICES = 30;
+  const ARROW_UNLOCK_SLICES = 50;
   const SPIKE_MIN_SEPARATION = 160;
   const SPIKE_SPEED_BASE = 80;
   const SPIKE_SPEED_SCALE = 1.35;
@@ -34,6 +34,9 @@
   const NINJA_EVENT_COOLDOWN_MS = 2200;
   const MAX_DASH_PARTICLES = 20;
   const DASH_PARTICLE_MAX_LIFE = 0.6;
+  const METEOR_TRAIL_COLOR = "rgba(255, 126, 76, 0.92)";
+  const METEOR_CORE_COLOR = "rgba(255, 240, 205, 0.96)";
+  const METEOR_IMPACT_COLOR = "rgba(255, 181, 128, 0.92)";
 
   const SKINS = Object.freeze([
     {
@@ -139,8 +142,9 @@
   const dom = {
     canvas: document.getElementById("gameCanvas"),
     comboValue: document.getElementById("comboValue"),
-    coinsValue: document.getElementById("coinsValue"),
-    hearts: [...document.querySelectorAll(".heart-slot")],
+    scoreValue: document.getElementById("scoreValue"),
+    timeBarFill: document.getElementById("timeBarFill"),
+    timeValue: document.getElementById("timeValue"),
     screenFlash: document.getElementById("screenFlash"),
     centerBanner: document.getElementById("centerBanner"),
     menuOverlay: document.getElementById("menuOverlay"),
@@ -225,11 +229,11 @@
       dashParticlesEmitted: 0,
     },
     run: {
-      hearts: MAX_HEARTS,
       score: 0,
       combo: 0,
       bestCombo: 0,
       slices: 0,
+      sliceTimer: SLICE_TIMEOUT_SECONDS,
       quickSliceChain: 0,
       lastSliceAt: 0,
       lastNinjaAt: -99999,
@@ -255,6 +259,7 @@
     effects: {
       lineVibration: 0,
       lineFlash: 0,
+      comboBoost: 0,
       shakeTime: 0,
       shakeStrength: 0,
       flashTime: 0,
@@ -519,7 +524,7 @@
   }
 
   function updateCoinDisplays() {
-    dom.coinsValue.textContent = String(state.profile.coins);
+    dom.scoreValue.textContent = String(state.run.score);
     dom.menuWalletText.textContent = `Coins: ${state.profile.coins}`;
     dom.shopWalletText.textContent = `Coins: ${state.profile.coins}`;
     const bestScore = Math.max(0, Math.floor(state.profile.records?.bestScore ?? 0));
@@ -535,9 +540,10 @@
     const combo = state.run.combo;
     dom.comboValue.textContent = `${combo}x`;
 
-    const glowAlpha = clamp(0.18 + (combo * 0.06), 0.2, 0.72);
-    const glowSize = 10 + (combo * 1.8);
-    const hue = clamp(188 - (combo * 2), 146, 188);
+    const glowAlpha = clamp(0.2 + (combo * 0.09), 0.22, 0.95);
+    const glowSize = 10 + (combo * 2.9);
+    const hue = clamp(188 - (combo * 3), 138, 188);
+    state.effects.comboBoost = combo <= 0 ? 0 : clamp(combo * 0.12, 0, 1.7);
 
     dom.comboValue.style.color = combo <= 0
       ? "#18bdd3"
@@ -551,42 +557,22 @@
     }
   }
 
-  function syncHeartsInstant() {
-    dom.hearts.forEach((heart, index) => {
-      heart.classList.remove("broken", "healing", "empty");
-      heart.classList.add(index < state.run.hearts ? "intact" : "empty");
-    });
-  }
-
-  function breakHeartAnimation(slotIndex) {
-    const heart = dom.hearts[slotIndex];
-    if (!heart) {
+  function updateSliceTimerDisplay() {
+    if (!dom.timeBarFill || !dom.timeValue) {
       return;
     }
 
-    heart.classList.remove("intact", "healing", "empty", "broken");
-    void heart.offsetWidth;
-    heart.classList.add("broken");
-
-    window.setTimeout(() => {
-      heart.classList.remove("broken");
-      heart.classList.add("empty");
-    }, 470);
-  }
-
-  function healHeartAnimation(slotIndex) {
-    const heart = dom.hearts[slotIndex];
-    if (!heart) {
-      return;
+    const ratio = clamp(state.run.sliceTimer / SLICE_TIMEOUT_SECONDS, 0, 1);
+    dom.timeBarFill.style.width = `${ratio * 100}%`;
+    if (ratio > 0.55) {
+      dom.timeBarFill.style.background = "linear-gradient(90deg, #36e2a6, #67f1cc)";
+    } else if (ratio > 0.25) {
+      dom.timeBarFill.style.background = "linear-gradient(90deg, #ffc768, #ffad4d)";
+    } else {
+      dom.timeBarFill.style.background = "linear-gradient(90deg, #ff5f73, #ff3f54)";
     }
 
-    heart.classList.remove("intact", "broken", "empty", "healing");
-    heart.classList.add("healing");
-
-    window.setTimeout(() => {
-      heart.classList.remove("healing");
-      heart.classList.add("intact");
-    }, 540);
+    dom.timeValue.textContent = `${state.run.sliceTimer.toFixed(1)}s`;
   }
 
   function updateShakeToggle() {
@@ -853,6 +839,28 @@
     return base;
   }
 
+  function createMeteorParticle() {
+    const player = state.player;
+    const move = normalize(player.vx, player.vy);
+    const reverseAngle = Math.atan2(-move.y, -move.x) + ((Math.random() - 0.5) * 0.65);
+    const speed = random(58, 132);
+    return {
+      x: player.x + random(-4, 4),
+      y: player.y + random(-4, 4),
+      vx: Math.cos(reverseAngle) * speed,
+      vy: Math.sin(reverseAngle) * speed,
+      life: random(0.12, 0.22),
+      maxLife: 0.22,
+      size: random(1.3, 2.4),
+      color: Math.random() < 0.5 ? METEOR_TRAIL_COLOR : METEOR_CORE_COLOR,
+      shape: "ember",
+      rotation: random(0, Math.PI * 2),
+      spin: random(-5, 5),
+      drag: 0.9,
+      gravity: 12,
+    };
+  }
+
   function emitDashParticles() {
     const player = state.player;
     const speed = Math.hypot(player.vx, player.vy);
@@ -874,6 +882,11 @@
 
     for (let i = 0; i < spawnCount; i += 1) {
       spawnParticle(createDashParticle(skin));
+      state.shot.dashParticlesEmitted += 1;
+    }
+
+    if (state.shot.dashParticlesEmitted < MAX_DASH_PARTICLES) {
+      spawnParticle(createMeteorParticle());
       state.shot.dashParticlesEmitted += 1;
     }
   }
@@ -1187,17 +1200,10 @@
     if (state.shot.active) {
       state.shot.hitObstacle = true;
       finalizeShot(true);
-      showBanner("ARROW HIT", "miss");
       return;
     }
 
-    loseHeart();
-    showBanner("ARROW HIT", "miss");
-    if (state.run.hearts <= 0) {
-      window.setTimeout(() => {
-        enterGameOver();
-      }, 260);
-    }
+    registerMiss();
   }
 
   function signedSide(point, lineA, lineB) {
@@ -1311,34 +1317,13 @@
     return null;
   }
 
-  function loseHeart() {
-    if (state.run.hearts <= 0) {
-      return;
-    }
-
-    state.run.hearts -= 1;
+  function registerMiss() {
     state.run.combo = 0;
     state.run.quickSliceChain = 0;
     updateComboDisplay();
-    breakHeartAnimation(state.run.hearts);
     triggerFlash("rgba(255, 65, 105, 0.58)", 1, 0.18);
     triggerShake(0.16, 6);
     showBanner("MISS", "miss");
-  }
-
-  function restoreHeartIfEligible() {
-    if (state.run.hearts >= MAX_HEARTS) {
-      return;
-    }
-
-    if (state.run.slices % 5 !== 0) {
-      return;
-    }
-
-    const restoreIndex = state.run.hearts;
-    state.run.hearts += 1;
-    healHeartAnimation(restoreIndex);
-    triggerFlash("rgba(63, 245, 178, 0.32)", 0.65, 0.22);
   }
 
   function onSlice(impactPoint) {
@@ -1359,16 +1344,17 @@
       state.run.quickSliceChain = 1;
     }
     state.run.lastSliceAt = now;
+    state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     state.run.coinsEarned += 1;
     state.profile.coins += 1;
 
     saveProfile();
     updateCoinDisplays();
+    updateSliceTimerDisplay();
     updateComboDisplay(true);
     updateDifficulty();
     unlockObstaclesIfNeeded();
     unlockArrowHazardsIfNeeded();
-    restoreHeartIfEligible();
 
     const lineMidpoint = impactPoint ?? {
       x: (state.defenders[0].x + state.defenders[1].x) / 2,
@@ -1376,10 +1362,11 @@
     };
 
     emitSliceSparks(lineMidpoint, "rgba(237, 249, 255, 0.95)", 18);
-    state.effects.lineVibration = 11 + (state.run.lineOscillation * 0.9);
+    const comboBoost = state.effects.comboBoost;
+    state.effects.lineVibration = 11 + (state.run.lineOscillation * 0.9) + (comboBoost * 6.5);
     state.effects.lineFlash = 1;
-    triggerShake(0.22, 8 + (state.run.difficulty * 0.04));
-    triggerFlash("rgba(255, 255, 255, 0.65)", 0.9, 0.12);
+    triggerShake(0.22 + (comboBoost * 0.04), 8 + (state.run.difficulty * 0.04) + (comboBoost * 4.8));
+    triggerFlash("rgba(255, 255, 255, 0.65)", 0.9 + (comboBoost * 0.08), 0.12 + (comboBoost * 0.01));
     const ninjaReady = (
       state.run.quickSliceChain >= NINJA_CHAIN_REQUIRED &&
       (now - state.run.lastNinjaAt) >= NINJA_EVENT_COOLDOWN_MS
@@ -1446,27 +1433,23 @@
       maxLife: 0.18,
       radius: state.player.radius * 0.7,
       maxRadius: state.player.radius * 2.5,
-      color: getActiveSkin().colorGlow,
+      color: METEOR_IMPACT_COLOR,
     });
+    emitSliceSparks({ x: state.player.x, y: state.player.y }, METEOR_IMPACT_COLOR, 6);
+    triggerFlash("rgba(255, 167, 108, 0.23)", 0.42, 0.08);
 
     if (missed) {
-      loseHeart();
-      if (state.run.hearts <= 0) {
-        window.setTimeout(() => {
-          enterGameOver();
-        }, 260);
-        return;
-      }
+      registerMiss();
     }
   }
 
   function startRun() {
     state.inRun = true;
-    state.run.hearts = MAX_HEARTS;
     state.run.score = 0;
     state.run.combo = 0;
     state.run.bestCombo = 0;
     state.run.slices = 0;
+    state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     state.run.quickSliceChain = 0;
     state.run.lastSliceAt = 0;
     state.run.lastNinjaAt = -99999;
@@ -1500,9 +1483,9 @@
     state.dashTrail.length = 0;
     state.afterimages.length = 0;
     state.attachPulses.length = 0;
-    syncHeartsInstant();
     updateComboDisplay();
     updateCoinDisplays();
+    updateSliceTimerDisplay();
     setOverlay("none");
   }
 
@@ -1511,8 +1494,10 @@
     state.shot.active = false;
     state.aim.active = false;
     state.canShoot = false;
+    state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     setOverlay("menu");
     updateCoinDisplays();
+    updateSliceTimerDisplay();
   }
 
   function beginShop(returnOverlay) {
@@ -1756,6 +1741,7 @@
       maxLife: 0.2,
       color: getActiveSkin().trailColor,
       style: getActiveSkin().particleStyle,
+      meteor: true,
     });
     if (state.dashTrail.length > 80) {
       state.dashTrail.splice(0, state.dashTrail.length - 80);
@@ -1784,14 +1770,7 @@
       state.shot.afterimageCooldown = 0.018;
     }
 
-    if (!state.shot.sliced) {
-      const sliceImpact = detectSliceDynamic(previous, state.player, linePrevious, lineCurrent);
-      if (sliceImpact) {
-        onSlice(sliceImpact);
-      }
-    }
-
-    if (!state.shot.sliced && state.run.obstacleUnlocked && !state.shot.hitObstacle) {
+    if (state.run.obstacleUnlocked && !state.shot.hitObstacle) {
       const obstacleHit = state.obstacles.some((obstacle) => {
         return segmentHitsObstacle(
           previous,
@@ -1804,7 +1783,6 @@
       if (obstacleHit) {
         state.shot.hitObstacle = true;
         emitSliceSparks({ x: state.player.x, y: state.player.y }, "rgba(211, 123, 123, 0.9)", 14);
-        showBanner("SPIKE HIT", "miss");
       }
     }
 
@@ -1842,6 +1820,13 @@
           y: (state.player.y + arrow.y) * 0.5,
         });
         return;
+      }
+    }
+
+    if (!state.shot.sliced && !state.shot.hitObstacle) {
+      const sliceImpact = detectSliceDynamic(previous, state.player, linePrevious, lineCurrent);
+      if (sliceImpact) {
+        onSlice(sliceImpact);
       }
     }
 
@@ -1926,6 +1911,14 @@
       return;
     }
 
+    state.run.sliceTimer = Math.max(0, state.run.sliceTimer - dt);
+    updateSliceTimerDisplay();
+    if (state.run.sliceTimer <= 0) {
+      showBanner("TIME UP", "miss");
+      enterGameOver();
+      return;
+    }
+
     const lineBeforeMove = getDefenderSegmentSnapshot();
     updateReposition(dt);
     const lineAfterMove = getDefenderSegmentSnapshot();
@@ -1974,14 +1967,15 @@
 
     const vibe = state.effects.lineVibration;
     const flash = state.effects.lineFlash;
+    const comboBoost = state.effects.comboBoost;
 
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.strokeStyle = "rgba(255, 122, 104, 0.9)";
     ctx.shadowColor = `rgba(255, 122, 104, ${0.28 + (flash * 0.5)})`;
-    ctx.shadowBlur = 14 + (flash * 12);
-    ctx.lineWidth = 4;
+    ctx.shadowBlur = 14 + (flash * 12) + (comboBoost * 8);
+    ctx.lineWidth = 4 + (comboBoost * 0.8);
     const shouldZigzag = vibe > 0.08;
 
     if (!shouldZigzag) {
@@ -1996,7 +1990,7 @@
     const normalX = -dy / length;
     const normalY = dx / length;
     const segments = 16;
-    const amplitude = 2.4 + (state.run.lineOscillation * 0.22) + vibe;
+    const amplitude = 2.4 + (state.run.lineOscillation * 0.22) + vibe + (comboBoost * 2.8);
     const phase = timeMs * 0.018;
     ctx.beginPath();
     for (let i = 0; i <= segments; i += 1) {
@@ -2045,18 +2039,18 @@
     const skin = getActiveSkin();
     const player = state.player;
     const speed = Math.hypot(player.vx, player.vy);
+    const comboBoost = state.effects.comboBoost;
     const timeMs = performance.now();
     const haloPulse = (Math.sin(timeMs * 0.011) + 1) * 0.5;
     const travelStretch = clamp(speed / 1400, 0, 0.16);
     const radiusX = player.radius * (1 + (travelStretch * 0.55));
     const radiusY = player.radius * (1 - (travelStretch * 0.25));
-    const eyeTilt = Math.min(0.25, speed / 3000);
 
     ctx.save();
-    const auraRadius = player.radius + 5 + Math.min(speed / 160, 6);
-    ctx.globalAlpha = 0.16 + (haloPulse * 0.24);
+    const auraRadius = player.radius + 5 + Math.min(speed / 160, 6) + (comboBoost * 3.4);
+    ctx.globalAlpha = 0.16 + (haloPulse * 0.24) + (comboBoost * 0.08);
     ctx.strokeStyle = skin.colorGlow;
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 3.5 + (comboBoost * 1.15);
     ctx.beginPath();
     ctx.arc(player.x, player.y, auraRadius, 0, Math.PI * 2);
     ctx.stroke();
@@ -2076,7 +2070,7 @@
     gradient.addColorStop(1, skin.colorSecondary);
     ctx.fillStyle = gradient;
     ctx.shadowColor = skin.colorGlow;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = 16 + (comboBoost * 7);
     ctx.beginPath();
     ctx.ellipse(player.x, player.y, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -2088,137 +2082,12 @@
     ctx.ellipse(player.x, player.y, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    if (skin.particleStyle === "fire") {
-      ctx.fillStyle = skin.accentA;
-      ctx.beginPath();
-      ctx.moveTo(player.x, player.y - (player.radius * 1.18));
-      ctx.quadraticCurveTo(
-        player.x + (player.radius * 0.52),
-        player.y - (player.radius * 1.76),
-        player.x + (player.radius * 0.2),
-        player.y - (player.radius * 0.96),
-      );
-      ctx.quadraticCurveTo(
-        player.x,
-        player.y - (player.radius * 1.12),
-        player.x - (player.radius * 0.24),
-        player.y - (player.radius * 0.96),
-      );
-      ctx.quadraticCurveTo(
-        player.x - (player.radius * 0.52),
-        player.y - (player.radius * 1.7),
-        player.x,
-        player.y - (player.radius * 1.18),
-      );
-      ctx.fill();
-    } else if (skin.particleStyle === "water") {
-      ctx.fillStyle = skin.accentA;
-      ctx.beginPath();
-      ctx.moveTo(player.x, player.y - (player.radius * 1.18));
-      ctx.quadraticCurveTo(
-        player.x + (player.radius * 0.42),
-        player.y - (player.radius * 1.55),
-        player.x,
-        player.y - (player.radius * 1.78),
-      );
-      ctx.quadraticCurveTo(
-        player.x - (player.radius * 0.42),
-        player.y - (player.radius * 1.55),
-        player.x,
-        player.y - (player.radius * 1.18),
-      );
-      ctx.fill();
-    } else if (skin.particleStyle === "lightning") {
-      ctx.fillStyle = skin.accentA;
-      const spikes = 5;
-      for (let i = 0; i < spikes; i += 1) {
-        const t = i / (spikes - 1);
-        const x = player.x + ((t - 0.5) * player.radius * 1.45);
-        const y = player.y - (player.radius * (0.95 + (Math.abs(t - 0.5) * 0.36)));
-        ctx.beginPath();
-        ctx.moveTo(x - 3.4, y + 1.6);
-        ctx.lineTo(x, y - 6.2);
-        ctx.lineTo(x + 3.4, y + 1.6);
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else if (skin.particleStyle === "earth") {
-      ctx.strokeStyle = skin.accentA;
-      ctx.lineWidth = 2.8;
-      ctx.beginPath();
-      ctx.arc(player.x, player.y - (player.radius * 0.88), player.radius * 0.58, Math.PI * 1.1, Math.PI * 1.95);
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(226, 203, 176, 0.65)";
-      ctx.lineWidth = 1.1;
-      ctx.beginPath();
-      ctx.moveTo(player.x - 3, player.y - 5);
-      ctx.lineTo(player.x - 6, player.y - 1);
-      ctx.lineTo(player.x - 2, player.y + 2);
-      ctx.moveTo(player.x + 4, player.y - 4);
-      ctx.lineTo(player.x + 1, player.y + 1);
-      ctx.stroke();
-    } else if (skin.particleStyle === "blossom") {
-      ctx.fillStyle = skin.accentA;
-      for (let i = 0; i < 3; i += 1) {
-        const x = player.x + ((i - 1) * 6.3);
-        const y = player.y - (player.radius * 1.05) - (Math.abs(i - 1) * 1.5);
-        ctx.beginPath();
-        ctx.ellipse(x, y, 3.2, 2.2, 0.5 * i, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = "#ffe9f6";
-      ctx.beginPath();
-      ctx.arc(player.x, player.y - (player.radius * 1.03), 1.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    const eyeOffsetX = player.radius * 0.34;
-    const eyeY = player.y - (player.radius * 0.12);
-    const eyeW = player.radius * 0.36;
-    const eyeH = player.radius * 0.2;
-
-    ctx.fillStyle = skin.eyeColor;
-    ctx.save();
-    ctx.translate(player.x - eyeOffsetX, eyeY);
-    ctx.rotate(-0.28 - eyeTilt);
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = skin.accentA;
     ctx.beginPath();
-    ctx.ellipse(0, 0, eyeW, eyeH, 0, 0, Math.PI * 2);
+    ctx.ellipse(player.x - (radiusX * 0.22), player.y - (radiusY * 0.26), radiusX * 0.34, radiusY * 0.24, -0.35, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
-
-    ctx.save();
-    ctx.translate(player.x + eyeOffsetX, eyeY);
-    ctx.rotate(0.28 + eyeTilt);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, eyeW, eyeH, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    ctx.strokeStyle = "#0b0f15";
-    ctx.lineWidth = 1.8;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(player.x - eyeOffsetX - 3.8, eyeY + 1);
-    ctx.lineTo(player.x - eyeOffsetX + 3.8, eyeY + 2.1);
-    ctx.moveTo(player.x + eyeOffsetX - 3.8, eyeY + 2.1);
-    ctx.lineTo(player.x + eyeOffsetX + 3.8, eyeY + 1);
-    ctx.stroke();
-
-    ctx.strokeStyle = skin.outline;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(player.x - eyeOffsetX - 5, eyeY - (eyeH + 2.5));
-    ctx.lineTo(player.x - eyeOffsetX + 5, eyeY - (eyeH - 0.4));
-    ctx.moveTo(player.x + eyeOffsetX - 5, eyeY - (eyeH - 0.4));
-    ctx.lineTo(player.x + eyeOffsetX + 5, eyeY - (eyeH + 2.5));
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(19, 23, 31, 0.85)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(player.x - 3.8, player.y + (player.radius * 0.28));
-    ctx.quadraticCurveTo(player.x, player.y + (player.radius * 0.4), player.x + 3.8, player.y + (player.radius * 0.28));
-    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     ctx.restore();
   }
@@ -2344,6 +2213,7 @@
   }
 
   function drawDashTrail() {
+    const comboBoost = state.effects.comboBoost;
     state.dashTrail.forEach((trail) => {
       const ratio = trail.maxLife > 0 ? trail.life / trail.maxLife : 0;
       if (ratio <= 0) {
@@ -2356,6 +2226,25 @@
       ctx.strokeStyle = trail.color;
       ctx.lineCap = "round";
 
+      if (trail.meteor) {
+        ctx.strokeStyle = METEOR_TRAIL_COLOR;
+        ctx.shadowColor = METEOR_TRAIL_COLOR;
+        ctx.shadowBlur = 13 + (comboBoost * 8);
+        ctx.lineWidth = 3.2 + (ratio * 4.8) + (comboBoost * 2.2);
+        ctx.beginPath();
+        ctx.moveTo(trail.ax, trail.ay);
+        ctx.lineTo(trail.bx, trail.by);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = METEOR_CORE_COLOR;
+        ctx.lineWidth = 1.4 + (ratio * 2.2) + (comboBoost * 1.2);
+        ctx.beginPath();
+        ctx.moveTo(trail.ax, trail.ay);
+        ctx.lineTo(trail.bx, trail.by);
+        ctx.stroke();
+      }
+
       if (style === "lightning") {
         const dx = trail.bx - trail.ax;
         const dy = trail.by - trail.ay;
@@ -2363,8 +2252,8 @@
         const nx = length > 0.0001 ? -dy / length : 0;
         const ny = length > 0.0001 ? dx / length : 0;
         const segments = 4;
-        const amplitude = 1.2 + (ratio * 2.1);
-        ctx.lineWidth = 1.8 + (ratio * 2.8);
+        const amplitude = 1.2 + (ratio * 2.1) + (comboBoost * 0.9);
+        ctx.lineWidth = 1.8 + (ratio * 2.8) + (comboBoost * 1.2);
         ctx.beginPath();
         for (let i = 0; i <= segments; i += 1) {
           const t = i / segments;
@@ -2381,7 +2270,7 @@
         }
         ctx.stroke();
       } else if (style === "water") {
-        ctx.lineWidth = 2.4 + (ratio * 3);
+        ctx.lineWidth = 2.4 + (ratio * 3) + (comboBoost * 1.2);
         ctx.beginPath();
         ctx.moveTo(trail.ax, trail.ay);
         ctx.lineTo(trail.bx, trail.by);
@@ -2393,21 +2282,21 @@
         ctx.lineTo(trail.bx, trail.by);
         ctx.stroke();
       } else if (style === "earth") {
-        ctx.lineWidth = 2.2 + (ratio * 2.4);
+        ctx.lineWidth = 2.2 + (ratio * 2.4) + (comboBoost * 1.1);
         ctx.setLineDash([5, 4]);
         ctx.beginPath();
         ctx.moveTo(trail.ax, trail.ay);
         ctx.lineTo(trail.bx, trail.by);
         ctx.stroke();
       } else if (style === "blossom") {
-        ctx.lineWidth = 2 + (ratio * 2.8);
+        ctx.lineWidth = 2 + (ratio * 2.8) + (comboBoost * 1.1);
         ctx.strokeStyle = trail.color;
         ctx.beginPath();
         ctx.moveTo(trail.ax, trail.ay);
         ctx.lineTo(trail.bx, trail.by);
         ctx.stroke();
       } else {
-        ctx.lineWidth = 2 + (ratio * 3);
+        ctx.lineWidth = 2 + (ratio * 3) + (comboBoost * 1.1);
         ctx.beginPath();
         ctx.moveTo(trail.ax, trail.ay);
         ctx.lineTo(trail.bx, trail.by);
@@ -2696,7 +2585,7 @@
 
   updateCoinDisplays();
   updateComboDisplay();
-  syncHeartsInstant();
+  updateSliceTimerDisplay();
   updateShakeToggle();
   buildShop();
   showMenu();

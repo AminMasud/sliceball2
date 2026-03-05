@@ -77,60 +77,36 @@ body.ninja-vibe {
   font-weight: 700;
 }
 
-.hearts {
-  margin-top: 6px;
+.timer-block {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.heart-slot {
-  position: relative;
-  width: 24px;
-  height: 22px;
+.time-bar {
+  margin-top: 6px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(24, 58, 95, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.72);
 }
 
-.heart-half {
-  position: absolute;
-  top: -2px;
-  left: 0;
+.time-bar-fill {
   width: 100%;
-  text-align: left;
-  font-size: 23px;
-  line-height: 1;
-  font-weight: 700;
-  color: #ff5575;
-  filter: drop-shadow(0 2px 3px rgba(182, 35, 67, 0.42));
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #36e2a6, #67f1cc);
+  box-shadow: 0 0 12px rgba(103, 241, 204, 0.48);
+  transition: width 90ms linear, background 90ms linear;
 }
 
-.heart-half.left {
-  left: 0;
-  clip-path: inset(0 50% 0 0);
-}
-
-.heart-half.right {
-  left: 0;
-  clip-path: inset(0 0 0 50%);
-}
-
-.heart-slot.broken .heart-half.left {
-  animation: heart-break-left 460ms ease forwards;
-}
-
-.heart-slot.broken .heart-half.right {
-  animation: heart-break-right 460ms ease forwards;
-}
-
-.heart-slot.healing .heart-half.left {
-  animation: heart-heal-left 520ms ease forwards;
-}
-
-.heart-slot.healing .heart-half.right {
-  animation: heart-heal-right 520ms ease forwards;
-}
-
-.heart-slot.empty .heart-half {
-  opacity: 0.2;
-  transform: translateY(4px);
+.time-value {
+  margin: 5px 0 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #3e6387;
+  text-align: right;
 }
 
 .combo-block {
@@ -443,58 +419,6 @@ button:active {
   100% {
     opacity: 0;
     transform: translate(-50%, -48%) scale(0.96);
-  }
-}
-
-@keyframes heart-break-left {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-  100% {
-    opacity: 0.18;
-    transform: translate(-5px, 9px) rotate(-20deg);
-  }
-}
-
-@keyframes heart-break-right {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-  100% {
-    opacity: 0.18;
-    transform: translate(5px, 9px) rotate(20deg);
-  }
-}
-
-@keyframes heart-heal-left {
-  0% {
-    opacity: 0.24;
-    transform: translate(-6px, 9px) rotate(-20deg);
-  }
-  65% {
-    opacity: 1;
-    transform: translate(1px, -2px) rotate(6deg);
-  }
-  100% {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
-  }
-}
-
-@keyframes heart-heal-right {
-  0% {
-    opacity: 0.24;
-    transform: translate(6px, 9px) rotate(20deg);
-  }
-  65% {
-    opacity: 1;
-    transform: translate(-1px, -2px) rotate(-6deg);
-  }
-  100% {
-    opacity: 1;
-    transform: translate(0, 0) rotate(0deg);
   }
 }
 

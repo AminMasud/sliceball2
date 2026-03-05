@@ -14,9 +14,9 @@ GAME OVERVIEW (CURRENT BUILD)
 3. Game computes wall landing target from swipe direction.
 4. Attacker performs a fast wall-to-wall dash.
 5. If dash path hits defender line, it counts as a slice.
-6. Score/combo/coins/hearts update.
+6. Score/combo/coins/timer update.
 7. Defenders and hazards keep moving.
-8. Loop continues until hearts reach 0.
+8. Loop continues until slice timer reaches 0.
 
 
 3) MOVEMENT MODEL
@@ -58,15 +58,19 @@ GAME OVERVIEW (CURRENT BUILD)
   - Zigzag/vibration only during slice-hit reaction.
 
 
-7) HEARTS / COMBO / COINS
-- Hearts: max 3.
+7) SURVIVAL TIMER / COMBO / COINS
+- Hearts removed.
+- Survival rule:
+  - player must land at least 1 slice every 3.0 seconds
+  - timer reaching 0 immediately triggers game over
 - Miss:
-  - lose 1 heart
-  - combo reset
+  - no slice point is awarded
+  - combo resets to 0
   - MISS banner + red flash
-- Heart restore:
-  - every 5 successful slices
-  - capped at 3
+- Hazard hit rule:
+  - spike or arrow hit invalidates that dash
+  - slice does not count even if line contact happened in same dash
+  - MISS is shown
 - Coins:
   - 1 coin per slice
   - persisted in localStorage
@@ -78,8 +82,8 @@ GAME OVERVIEW (CURRENT BUILD)
 
 8) ATTACKER SKINS (COSMETIC)
 - Character style:
-  - round chubby ninja blob
-  - angry eyes + small mouth
+  - all attacker skins keep the same round ball silhouette
+  - faceless core (no eyes or mouth)
   - thick outline + glow aura
 - Skin data model per character:
   - id, name, theme, colorPrimary, colorGlow, particleStyle, unlockCost
@@ -95,6 +99,10 @@ GAME OVERVIEW (CURRENT BUILD)
 
 9) DASH VFX BY SKIN
 - Dash trail + particles switch by selected skin.
+- Meteor layer is always applied during dash:
+  - hot comet tail with bright core
+  - ember sparks while traveling
+  - small meteor impact burst on wall attach
 - Style examples:
   - Fire: ember-like particles and hot streak color
   - Water: droplet particles and cool ripple-like trail
@@ -107,8 +115,8 @@ GAME OVERVIEW (CURRENT BUILD)
 
 
 10) OBSTACLES (SPIKES)
-- 1st spike unlocks at 25 slices.
-- 2nd spike unlocks at 50 slices.
+- 1st spike unlocks at 5 slices.
+- 2nd spike unlocks at 30 slices.
 - Spikes move across full arena.
 - Spike speed behavior:
   - Starts faster than before.
@@ -121,11 +129,11 @@ GAME OVERVIEW (CURRENT BUILD)
 
 
 11) HAZARD (FLYING ARROWS)
-- Arrows unlock at 75 slices.
+- Arrows unlock at 50 slices.
 - Arrows spawn periodically.
 - Before each arrow appears, a warning path line blinks.
 - Arrow then flies fast across the warned path.
-- Arrow hit counts as a miss (heart loss).
+- Arrow hit counts as a miss (no point, combo reset).
 
 
 12) SPECIAL EVENTS
@@ -141,7 +149,11 @@ GAME OVERVIEW (CURRENT BUILD)
 - Dash:
   - themed trail segments
   - themed particles
+  - meteor-style comet tail and landing flare
   - afterimages
+- Combo scaling:
+  - higher combo increases line/trail/glow intensity
+  - intensity returns to normal when combo resets
 - Slice:
   - spark burst
   - line flash/vibration
@@ -155,9 +167,9 @@ GAME OVERVIEW (CURRENT BUILD)
 
 14) UI / OVERLAYS
 - HUD:
-  - top-left hearts
+  - top-left 3s slice timer bar
   - top-center combo
-  - top-right coins
+  - top-right score
 - Overlays:
   - Main menu (Play / Shop / Options)
   - Shop (buy + select skins)
