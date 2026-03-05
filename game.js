@@ -7,7 +7,7 @@
   });
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
-  const MAX_HEARTS = 2;
+  const MAX_HEARTS = 3;
   const OBSTACLE_UNLOCK_SLICES = 25;
   const SECOND_OBSTACLE_UNLOCK_SLICES = 50;
   const ARROW_UNLOCK_SLICES = 75;

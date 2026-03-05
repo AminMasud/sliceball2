@@ -59,14 +59,14 @@ GAME OVERVIEW (CURRENT BUILD)
 
 
 7) HEARTS / COMBO / COINS
-- Hearts: max 2.
+- Hearts: max 3.
 - Miss:
   - lose 1 heart
   - combo reset
   - MISS banner + red flash
 - Heart restore:
   - every 5 successful slices
-  - capped at 2
+  - capped at 3
 - Coins:
   - 1 coin per slice
   - persisted in localStorage
