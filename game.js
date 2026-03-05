@@ -8,13 +8,27 @@
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
   const MAX_HEARTS = 2;
-  const OBSTACLE_UNLOCK_SLICES = 50;
+  const OBSTACLE_UNLOCK_SLICES = 25;
+  const SECOND_OBSTACLE_UNLOCK_SLICES = 50;
+  const ARROW_UNLOCK_SLICES = 75;
+  const SPIKE_MIN_SEPARATION = 160;
+  const ARROW_WARNING_DURATION = 0.78;
+  const ARROW_MIN_DELAY = 1.9;
+  const ARROW_MAX_DELAY = 3.8;
+  const ARROW_SPEED_BASE = 420;
+  const ARROW_SPEED_SCALE = 3.4;
+  const ARROW_RADIUS = 8;
+  const ARROW_OFFSCREEN_MARGIN = 42;
   const PLAYER_RADIUS = 14;
   const DEFENDER_RADIUS = 15;
+  const DEFENDER_MIN_SEPARATION = DEFENDER_RADIUS * 7;
   const DASH_MIN_DURATION = 0.15;
   const DASH_MAX_DURATION = 0.25;
   const DASH_SPEED = 2200;
   const DASH_COOLDOWN = 0.15;
+  const NINJA_CHAIN_WINDOW_MS = 1150;
+  const NINJA_CHAIN_REQUIRED = 3;
+  const NINJA_EVENT_COOLDOWN_MS = 2200;
 
   const SKINS = Object.freeze([
     {
@@ -150,6 +164,9 @@
       combo: 0,
       bestCombo: 0,
       slices: 0,
+      quickSliceChain: 0,
+      lastSliceAt: 0,
+      lastNinjaAt: -99999,
       coinsEarned: 0,
       difficulty: 0,
       defenderSpeed: 74,
@@ -158,6 +175,12 @@
       obstacleUnlocked: false,
     },
     obstacles: [],
+    arrows: {
+      unlocked: false,
+      timer: 0,
+      preview: null,
+      active: null,
+    },
     particles: [],
     dashTrail: [],
     afterimages: [],
@@ -551,6 +574,8 @@
       dom.centerBanner.style.background = "rgba(255, 63, 95, 0.84)";
     } else if (kind === "slice") {
       dom.centerBanner.style.background = "rgba(28, 189, 219, 0.86)";
+    } else if (kind === "ninja") {
+      dom.centerBanner.style.background = "rgba(56, 210, 255, 0.9)";
     } else if (kind === "warn") {
       dom.centerBanner.style.background = "rgba(255, 156, 72, 0.86)";
     } else {
@@ -580,6 +605,30 @@
 
     state.effects.shakeTime = Math.max(state.effects.shakeTime, duration);
     state.effects.shakeStrength = Math.max(state.effects.shakeStrength, strength);
+  }
+
+  function triggerWholeScreenVibration() {
+    document.body.classList.remove("ninja-vibe");
+    void document.body.offsetWidth;
+    document.body.classList.add("ninja-vibe");
+    window.setTimeout(() => {
+      document.body.classList.remove("ninja-vibe");
+    }, 370);
+
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate([65, 45, 65]);
+      }
+    } catch {
+      // Ignore vibrate API restrictions.
+    }
+  }
+
+  function triggerNinjaSkills() {
+    triggerShake(0.42, 15);
+    triggerFlash("rgba(120, 233, 255, 0.7)", 1, 0.2);
+    triggerWholeScreenVibration();
+    showBanner("NINJA SKILLS", "ninja");
   }
 
   function spawnParticle(particle) {
@@ -635,21 +684,21 @@
     for (let attempts = 0; attempts < 90; attempts += 1) {
       const first = {
         x: random(44, ARENA.width - 44),
-        y: random(82, ARENA.height * 0.35),
+        y: random(44, ARENA.height - 44),
       };
       const second = {
         x: random(44, ARENA.width - 44),
-        y: random(98, ARENA.height * 0.42),
+        y: random(44, ARENA.height - 44),
       };
 
-      if (distance(first.x, first.y, second.x, second.y) >= 120) {
+      if (distance(first.x, first.y, second.x, second.y) >= DEFENDER_MIN_SEPARATION) {
         return [first, second];
       }
     }
 
     return [
-      { x: ARENA.width * 0.32, y: 128 },
-      { x: ARENA.width * 0.68, y: 168 },
+      { x: ARENA.width * 0.32, y: ARENA.height * 0.35 },
+      { x: ARENA.width * 0.68, y: ARENA.height * 0.65 },
     ];
   }
 
@@ -662,6 +711,7 @@
       defender.targetY = point.y;
       defender.retargetAt = 0;
     });
+    enforceDefenderSeparation();
   }
 
   function chooseWanderTarget(index) {
@@ -669,9 +719,9 @@
 
     for (let attempts = 0; attempts < 60; attempts += 1) {
       const x = random(38, ARENA.width - 38);
-      const y = random(84, ARENA.height * 0.42);
+      const y = random(38, ARENA.height - 38);
 
-      if (distance(x, y, other.targetX ?? other.x, other.targetY ?? other.y) < 96) {
+      if (distance(x, y, other.targetX ?? other.x, other.targetY ?? other.y) < DEFENDER_MIN_SEPARATION) {
         continue;
       }
 
@@ -680,8 +730,42 @@
 
     return {
       x: index === 0 ? ARENA.width * 0.3 : ARENA.width * 0.7,
-      y: random(110, 210),
+      y: random(38, ARENA.height - 38),
     };
+  }
+
+  function enforceDefenderSeparation() {
+    const first = state.defenders[0];
+    const second = state.defenders[1];
+    let dx = second.x - first.x;
+    let dy = second.y - first.y;
+    let gap = Math.hypot(dx, dy);
+
+    if (gap >= DEFENDER_MIN_SEPARATION) {
+      return;
+    }
+
+    if (gap < 0.0001) {
+      gap = 0.0001;
+      dx = 1;
+      dy = 0;
+    }
+
+    const nx = dx / gap;
+    const ny = dy / gap;
+    const overlap = DEFENDER_MIN_SEPARATION - gap;
+    const pushX = nx * (overlap / 2);
+    const pushY = ny * (overlap / 2);
+
+    first.x -= pushX;
+    first.y -= pushY;
+    second.x += pushX;
+    second.y += pushY;
+
+    first.x = clamp(first.x, first.radius, ARENA.width - first.radius);
+    first.y = clamp(first.y, first.radius, ARENA.height - first.radius);
+    second.x = clamp(second.x, second.radius, ARENA.width - second.radius);
+    second.y = clamp(second.y, second.radius, ARENA.height - second.radius);
   }
 
   function scheduleDefenderTarget(index, baseTime = performance.now()) {
@@ -719,12 +803,23 @@
     state.run.lineOscillation = 4 + Math.min(24, d * 0.13);
   }
 
-  function createObstacle(index) {
-    for (let attempts = 0; attempts < 70; attempts += 1) {
-      const x = random(44, ARENA.width - 44);
-      const y = random(ARENA.height * 0.34, ARENA.height * 0.76);
+  function getSpikeSeparation(radiusA, radiusB) {
+    const bySize = Math.max(radiusA, radiusB) * 8;
+    return Math.max(SPIKE_MIN_SEPARATION, bySize);
+  }
 
-      if (distance(x, y, ARENA.width / 2, LAUNCH_Y) < 110) {
+  function createObstacle(index, existingObstacles = state.obstacles) {
+    const radius = 19 + (index * 1.8);
+
+    for (let attempts = 0; attempts < 70; attempts += 1) {
+      const x = random(radius + 14, ARENA.width - radius - 14);
+      const y = random(radius + 14, ARENA.height - radius - 14);
+
+      const tooClose = existingObstacles.some((other) => {
+        return distance(x, y, other.x, other.y) < getSpikeSeparation(radius, other.radius);
+      });
+
+      if (tooClose) {
         continue;
       }
 
@@ -733,36 +828,185 @@
         y,
         vx: random(-16, 16),
         vy: random(-18, 18),
-        radius: 19 + (index * 1.8),
+        radius,
         angle: random(0, Math.PI * 2),
         spin: random(-1.3, 1.3),
       };
     }
 
+    const fallbackX = index === 0 ? ARENA.width * 0.22 : ARENA.width * 0.78;
+    const fallbackY = index === 0 ? ARENA.height * 0.24 : ARENA.height * 0.76;
     return {
-      x: ARENA.width * (index === 0 ? 0.3 : 0.7),
-      y: ARENA.height * 0.55,
+      x: clamp(fallbackX, radius + 8, ARENA.width - radius - 8),
+      y: clamp(fallbackY, radius + 8, ARENA.height - radius - 8),
       vx: 0,
       vy: 0,
-      radius: 20,
+      radius,
       angle: 0,
       spin: 0.7,
     };
   }
 
   function unlockObstaclesIfNeeded() {
-    if (state.run.obstacleUnlocked || state.run.slices < OBSTACLE_UNLOCK_SLICES) {
+    if (state.run.slices >= OBSTACLE_UNLOCK_SLICES && state.obstacles.length === 0) {
+      state.run.obstacleUnlocked = true;
+      state.obstacles.push(createObstacle(0, []));
+      showBanner("SPIKE ONLINE", "warn");
+    }
+
+    if (state.run.slices >= SECOND_OBSTACLE_UNLOCK_SLICES && state.obstacles.length === 1) {
+      state.obstacles.push(createObstacle(1, state.obstacles));
+      showBanner("DOUBLE SPIKES", "warn");
+    }
+  }
+
+  function nextArrowDelay() {
+    const pressure = Math.min(1.25, state.run.slices * 0.009);
+    const minDelay = Math.max(0.95, ARROW_MIN_DELAY - (pressure * 0.4));
+    const maxDelay = Math.max(minDelay + 0.25, ARROW_MAX_DELAY - pressure);
+    return random(minDelay, maxDelay);
+  }
+
+  function createArrowLane() {
+    const inset = 22;
+
+    for (let attempts = 0; attempts < 18; attempts += 1) {
+      const horizontal = Math.random() < 0.5;
+      const forward = Math.random() < 0.5;
+      let lane;
+
+      if (horizontal) {
+        const y = random(inset, ARENA.height - inset);
+        lane = {
+          warningStartX: 4,
+          warningStartY: y,
+          warningEndX: ARENA.width - 4,
+          warningEndY: y,
+          startX: forward ? -ARROW_OFFSCREEN_MARGIN : ARENA.width + ARROW_OFFSCREEN_MARGIN,
+          startY: y,
+          endX: forward ? ARENA.width + ARROW_OFFSCREEN_MARGIN : -ARROW_OFFSCREEN_MARGIN,
+          endY: y,
+        };
+      } else {
+        const x = random(inset, ARENA.width - inset);
+        lane = {
+          warningStartX: x,
+          warningStartY: 4,
+          warningEndX: x,
+          warningEndY: ARENA.height - 4,
+          startX: x,
+          startY: forward ? -ARROW_OFFSCREEN_MARGIN : ARENA.height + ARROW_OFFSCREEN_MARGIN,
+          endX: x,
+          endY: forward ? ARENA.height + ARROW_OFFSCREEN_MARGIN : -ARROW_OFFSCREEN_MARGIN,
+        };
+      }
+
+      const playerDistance = distancePointToSegment(
+        state.player.x,
+        state.player.y,
+        lane.warningStartX,
+        lane.warningStartY,
+        lane.warningEndX,
+        lane.warningEndY,
+      );
+      if (playerDistance < (state.player.radius + 22) && attempts < 17) {
+        continue;
+      }
+
+      return lane;
+    }
+
+    return {
+      warningStartX: 4,
+      warningStartY: ARENA.height * 0.5,
+      warningEndX: ARENA.width - 4,
+      warningEndY: ARENA.height * 0.5,
+      startX: -ARROW_OFFSCREEN_MARGIN,
+      startY: ARENA.height * 0.5,
+      endX: ARENA.width + ARROW_OFFSCREEN_MARGIN,
+      endY: ARENA.height * 0.5,
+    };
+  }
+
+  function startArrowWarning() {
+    state.arrows.preview = {
+      lane: createArrowLane(),
+      timeLeft: ARROW_WARNING_DURATION,
+    };
+  }
+
+  function spawnArrowFromWarning(preview) {
+    const lane = preview.lane;
+    const dir = normalize(lane.endX - lane.startX, lane.endY - lane.startY);
+    const speed = ARROW_SPEED_BASE + Math.min(280, state.run.slices * ARROW_SPEED_SCALE);
+    state.arrows.active = {
+      x: lane.startX,
+      y: lane.startY,
+      prevX: lane.startX,
+      prevY: lane.startY,
+      vx: dir.x * speed,
+      vy: dir.y * speed,
+      dirX: dir.x,
+      dirY: dir.y,
+      angle: Math.atan2(dir.y, dir.x),
+      radius: ARROW_RADIUS,
+      travelled: 0,
+      maxTravel: distance(lane.startX, lane.startY, lane.endX, lane.endY) + 30,
+    };
+  }
+
+  function unlockArrowHazardsIfNeeded() {
+    if (state.arrows.unlocked || state.run.slices < ARROW_UNLOCK_SLICES) {
       return;
     }
 
-    state.run.obstacleUnlocked = true;
-    state.obstacles = [createObstacle(0), createObstacle(1)];
-    showBanner("SPIKES ONLINE", "warn");
+    state.arrows.unlocked = true;
+    state.arrows.timer = random(0.65, 1.15);
+    showBanner("ARROWS INBOUND", "warn");
+  }
+
+  function handleArrowHit(hitPoint = null) {
+    const impact = hitPoint ?? { x: state.player.x, y: state.player.y };
+    emitSliceSparks(impact, "rgba(255, 180, 122, 0.95)", 15);
+    triggerFlash("rgba(255, 136, 97, 0.55)", 0.92, 0.16);
+    triggerShake(0.17, 7);
+
+    state.arrows.active = null;
+    state.arrows.timer = nextArrowDelay();
+
+    if (state.shot.active) {
+      state.shot.hitObstacle = true;
+      finalizeShot(true);
+      showBanner("ARROW HIT", "miss");
+      return;
+    }
+
+    loseHeart();
+    showBanner("ARROW HIT", "miss");
+    if (state.run.hearts <= 0) {
+      window.setTimeout(() => {
+        enterGameOver();
+      }, 260);
+    }
   }
 
   function signedSide(point, lineA, lineB) {
     const normalX = -(lineB.y - lineA.y);
     const normalY = lineB.x - lineA.x;
+    return ((point.x - lineA.x) * normalX) + ((point.y - lineA.y) * normalY);
+  }
+
+  function signedDistanceToLine(point, lineA, lineB) {
+    const dx = lineB.x - lineA.x;
+    const dy = lineB.y - lineA.y;
+    const length = Math.hypot(dx, dy);
+
+    if (length < 0.000001) {
+      return 0;
+    }
+
+    const normalX = -dy / length;
+    const normalY = dx / length;
     return ((point.x - lineA.x) * normalX) + ((point.y - lineA.y) * normalY);
   }
 
@@ -793,21 +1037,68 @@
   }
 
   function detectSlice(previous, next) {
-    const lineA = state.defenders[0];
-    const lineB = state.defenders[1];
-    const prevSide = signedSide(previous, lineA, lineB);
-    const nextSide = signedSide(next, lineA, lineB);
-    const sideEpsilon = 0.01;
-    const changedSide = (
-      (prevSide > sideEpsilon && nextSide < -sideEpsilon) ||
-      (prevSide < -sideEpsilon && nextSide > sideEpsilon)
+    const lineA = { x: state.defenders[0].x, y: state.defenders[0].y };
+    const lineB = { x: state.defenders[1].x, y: state.defenders[1].y };
+    return segmentIntersection(previous, next, lineA, lineB) || null;
+  }
+
+  function getDefenderSegmentSnapshot() {
+    return {
+      ax: state.defenders[0].x,
+      ay: state.defenders[0].y,
+      bx: state.defenders[1].x,
+      by: state.defenders[1].y,
+    };
+  }
+
+  function detectSliceDynamic(previous, next, linePrevious, lineCurrent) {
+    const prevLine = linePrevious ?? lineCurrent ?? getDefenderSegmentSnapshot();
+    const currLine = lineCurrent ?? prevLine;
+    const staticHit = segmentIntersection(
+      previous,
+      next,
+      { x: currLine.ax, y: currLine.ay },
+      { x: currLine.bx, y: currLine.by },
     );
 
-    if (!changedSide) {
-      return null;
+    if (staticHit) {
+      return staticHit;
     }
 
-    return segmentIntersection(previous, next, lineA, lineB);
+    const sampleCount = 7;
+    let prevSamplePoint = { x: previous.x, y: previous.y };
+    let prevLineA = { x: prevLine.ax, y: prevLine.ay };
+    let prevLineB = { x: prevLine.bx, y: prevLine.by };
+
+    for (let i = 1; i <= sampleCount; i += 1) {
+      const t = i / sampleCount;
+      const samplePoint = {
+        x: lerp(previous.x, next.x, t),
+        y: lerp(previous.y, next.y, t),
+      };
+      const lineA = {
+        x: lerp(prevLine.ax, currLine.ax, t),
+        y: lerp(prevLine.ay, currLine.ay, t),
+      };
+      const lineB = {
+        x: lerp(prevLine.bx, currLine.bx, t),
+        y: lerp(prevLine.by, currLine.by, t),
+      };
+      const impact = (
+        segmentIntersection(prevSamplePoint, samplePoint, lineA, lineB) ||
+        segmentIntersection(prevSamplePoint, samplePoint, prevLineA, prevLineB)
+      );
+
+      if (impact) {
+        return impact;
+      }
+
+      prevSamplePoint = samplePoint;
+      prevLineA = lineA;
+      prevLineB = lineB;
+    }
+
+    return null;
   }
 
   function loseHeart() {
@@ -817,6 +1108,7 @@
 
     state.run.hearts -= 1;
     state.run.combo = 0;
+    state.run.quickSliceChain = 0;
     updateComboDisplay();
     breakHeartAnimation(state.run.hearts);
     triggerFlash("rgba(255, 65, 105, 0.58)", 1, 0.18);
@@ -850,6 +1142,13 @@
     state.run.combo += 1;
     state.run.bestCombo = Math.max(state.run.bestCombo, state.run.combo);
     state.run.slices += 1;
+    const now = performance.now();
+    if ((now - state.run.lastSliceAt) <= NINJA_CHAIN_WINDOW_MS) {
+      state.run.quickSliceChain += 1;
+    } else {
+      state.run.quickSliceChain = 1;
+    }
+    state.run.lastSliceAt = now;
     state.run.coinsEarned += 1;
     state.profile.coins += 1;
 
@@ -858,6 +1157,7 @@
     updateComboDisplay(true);
     updateDifficulty();
     unlockObstaclesIfNeeded();
+    unlockArrowHazardsIfNeeded();
     restoreHeartIfEligible();
 
     const lineMidpoint = impactPoint ?? {
@@ -870,7 +1170,17 @@
     state.effects.lineFlash = 1;
     triggerShake(0.22, 8 + (state.run.difficulty * 0.04));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9, 0.12);
-    showBanner("SLICE!", "slice");
+    const ninjaReady = (
+      state.run.quickSliceChain >= NINJA_CHAIN_REQUIRED &&
+      (now - state.run.lastNinjaAt) >= NINJA_EVENT_COOLDOWN_MS
+    );
+
+    if (ninjaReady) {
+      state.run.lastNinjaAt = now;
+      triggerNinjaSkills();
+    } else {
+      showBanner("SLICE!", "slice");
+    }
   }
 
   function enterGameOver() {
@@ -930,9 +1240,16 @@
     state.run.combo = 0;
     state.run.bestCombo = 0;
     state.run.slices = 0;
+    state.run.quickSliceChain = 0;
+    state.run.lastSliceAt = 0;
+    state.run.lastNinjaAt = -99999;
     state.run.coinsEarned = 0;
     state.run.obstacleUnlocked = false;
     state.obstacles = [];
+    state.arrows.unlocked = false;
+    state.arrows.timer = 0;
+    state.arrows.preview = null;
+    state.arrows.active = null;
     state.particles.length = 0;
     state.effects.lineVibration = 0;
     state.effects.lineFlash = 0;
@@ -1052,6 +1369,8 @@
         scheduleDefenderTarget(index, now + 90);
       }
     });
+
+    enforceDefenderSeparation();
   }
 
   function updateObstacles(dt) {
@@ -1069,14 +1388,110 @@
         obstacle.x = clamp(obstacle.x, obstacle.radius, ARENA.width - obstacle.radius);
       }
 
-      if (obstacle.y < ARENA.height * 0.26 || obstacle.y > ARENA.height - obstacle.radius - 28) {
+      if (obstacle.y < obstacle.radius || obstacle.y > ARENA.height - obstacle.radius) {
         obstacle.vy *= -1;
-        obstacle.y = clamp(obstacle.y, ARENA.height * 0.26, ARENA.height - obstacle.radius - 28);
+        obstacle.y = clamp(obstacle.y, obstacle.radius, ARENA.height - obstacle.radius);
       }
     });
+
+    if (state.obstacles.length >= 2) {
+      for (let i = 0; i < state.obstacles.length; i += 1) {
+        for (let j = i + 1; j < state.obstacles.length; j += 1) {
+          const first = state.obstacles[i];
+          const second = state.obstacles[j];
+          let dx = second.x - first.x;
+          let dy = second.y - first.y;
+          let gap = Math.hypot(dx, dy);
+          const minGap = getSpikeSeparation(first.radius, second.radius);
+
+          if (gap >= minGap) {
+            continue;
+          }
+
+          if (gap < 0.0001) {
+            gap = 0.0001;
+            dx = 1;
+            dy = 0;
+          }
+
+          const nx = dx / gap;
+          const ny = dy / gap;
+          const overlap = minGap - gap;
+          const pushX = nx * (overlap / 2);
+          const pushY = ny * (overlap / 2);
+
+          first.x -= pushX;
+          first.y -= pushY;
+          second.x += pushX;
+          second.y += pushY;
+
+          first.vx -= nx * 20;
+          first.vy -= ny * 20;
+          second.vx += nx * 20;
+          second.vy += ny * 20;
+
+          first.x = clamp(first.x, first.radius, ARENA.width - first.radius);
+          first.y = clamp(first.y, first.radius, ARENA.height - first.radius);
+          second.x = clamp(second.x, second.radius, ARENA.width - second.radius);
+          second.y = clamp(second.y, second.radius, ARENA.height - second.radius);
+        }
+      }
+    }
   }
 
-  function updateShot(dt) {
+  function updateArrows(dt) {
+    if (!state.inRun || !state.arrows.unlocked) {
+      return;
+    }
+
+    if (state.arrows.preview) {
+      state.arrows.preview.timeLeft -= dt;
+      if (state.arrows.preview.timeLeft <= 0) {
+        spawnArrowFromWarning(state.arrows.preview);
+        state.arrows.preview = null;
+      }
+      return;
+    }
+
+    if (state.arrows.active) {
+      const arrow = state.arrows.active;
+      arrow.prevX = arrow.x;
+      arrow.prevY = arrow.y;
+      const stepX = arrow.vx * dt;
+      const stepY = arrow.vy * dt;
+      arrow.x += stepX;
+      arrow.y += stepY;
+      arrow.travelled += Math.hypot(stepX, stepY);
+
+      const hitDistance = state.player.radius + arrow.radius;
+      const playerHit = distancePointToSegment(
+        state.player.x,
+        state.player.y,
+        arrow.prevX,
+        arrow.prevY,
+        arrow.x,
+        arrow.y,
+      ) <= hitDistance;
+
+      if (playerHit) {
+        handleArrowHit();
+        return;
+      }
+
+      if (arrow.travelled >= arrow.maxTravel) {
+        state.arrows.active = null;
+      }
+      return;
+    }
+
+    state.arrows.timer -= dt;
+    if (state.arrows.timer <= 0) {
+      startArrowWarning();
+      state.arrows.timer = nextArrowDelay();
+    }
+  }
+
+  function updateShot(dt, linePrevious, lineCurrent) {
     if (!state.shot.active) {
       return;
     }
@@ -1125,13 +1540,13 @@
     }
 
     if (!state.shot.sliced) {
-      const sliceImpact = detectSlice(previous, state.player);
+      const sliceImpact = detectSliceDynamic(previous, state.player, linePrevious, lineCurrent);
       if (sliceImpact) {
         onSlice(sliceImpact);
       }
     }
 
-    if (state.run.obstacleUnlocked && !state.shot.hitObstacle) {
+    if (!state.shot.sliced && state.run.obstacleUnlocked && !state.shot.hitObstacle) {
       const obstacleHit = state.obstacles.some((obstacle) => {
         return segmentHitsObstacle(
           previous,
@@ -1145,6 +1560,43 @@
         state.shot.hitObstacle = true;
         emitSliceSparks({ x: state.player.x, y: state.player.y }, "rgba(211, 123, 123, 0.9)", 14);
         showBanner("SPIKE HIT", "miss");
+      }
+    }
+
+    if (!state.shot.hitObstacle && state.arrows.active) {
+      const arrow = state.arrows.active;
+      const dashSegmentEnd = { x: state.player.x, y: state.player.y };
+      const arrowDashHit = (
+        distancePointToSegment(
+          arrow.x,
+          arrow.y,
+          previous.x,
+          previous.y,
+          dashSegmentEnd.x,
+          dashSegmentEnd.y,
+        ) <= (state.player.radius + arrow.radius) ||
+        distancePointToSegment(
+          arrow.prevX,
+          arrow.prevY,
+          previous.x,
+          previous.y,
+          dashSegmentEnd.x,
+          dashSegmentEnd.y,
+        ) <= (state.player.radius + arrow.radius) ||
+        Boolean(segmentIntersection(
+          previous,
+          dashSegmentEnd,
+          { x: arrow.prevX, y: arrow.prevY },
+          { x: arrow.x, y: arrow.y },
+        ))
+      );
+
+      if (arrowDashHit) {
+        handleArrowHit({
+          x: (state.player.x + arrow.x) * 0.5,
+          y: (state.player.y + arrow.y) * 0.5,
+        });
+        return;
       }
     }
 
@@ -1223,9 +1675,12 @@
       return;
     }
 
+    const lineBeforeMove = getDefenderSegmentSnapshot();
     updateReposition(dt);
+    const lineAfterMove = getDefenderSegmentSnapshot();
     updateObstacles(dt);
-    updateShot(dt);
+    updateShot(dt, lineBeforeMove, lineAfterMove);
+    updateArrows(dt);
     updateParticles(dt);
   }
 
@@ -1390,6 +1845,10 @@
       return;
     }
 
+    const scorePreviewFactor = clamp(1 - (state.run.score * 0.006), 0.34, 1);
+    const previewX = lerp(player.x, target.x, scorePreviewFactor);
+    const previewY = lerp(player.y, target.y, scorePreviewFactor);
+
     ctx.save();
     ctx.lineCap = "round";
     ctx.strokeStyle = "rgba(42, 200, 255, 0.75)";
@@ -1398,7 +1857,7 @@
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
-    ctx.lineTo(target.x, target.y);
+    ctx.lineTo(previewX, previewY);
     ctx.stroke();
 
     ctx.shadowBlur = 0;
@@ -1486,6 +1945,80 @@
     });
   }
 
+  function drawArrowWarning(timeMs) {
+    const preview = state.arrows.preview;
+    if (!preview) {
+      return;
+    }
+
+    const blinkOn = Math.sin(timeMs * 0.03) > 0;
+    const alpha = blinkOn ? 0.95 : 0.22;
+    const lane = preview.lane;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(255, 165, 92, 0.95)";
+    ctx.shadowColor = "rgba(255, 165, 92, 0.88)";
+    ctx.shadowBlur = 9;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 7]);
+    ctx.lineDashOffset = -(timeMs * 0.04);
+    ctx.beginPath();
+    ctx.moveTo(lane.warningStartX, lane.warningStartY);
+    ctx.lineTo(lane.warningEndX, lane.warningEndY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawActiveArrow() {
+    const arrow = state.arrows.active;
+    if (!arrow) {
+      return;
+    }
+
+    const tailX = arrow.x - (arrow.dirX * 22);
+    const tailY = arrow.y - (arrow.dirY * 22);
+    const wingX = -arrow.dirY;
+    const wingY = arrow.dirX;
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 191, 138, 0.82)";
+    ctx.shadowColor = "rgba(255, 191, 138, 0.82)";
+    ctx.shadowBlur = 11;
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(arrow.x, arrow.y);
+    ctx.stroke();
+
+    const sideLength = 8;
+    const backX = arrow.x - (arrow.dirX * 11);
+    const backY = arrow.y - (arrow.dirY * 11);
+    ctx.fillStyle = "#ffd7a8";
+    ctx.beginPath();
+    ctx.moveTo(arrow.x + (arrow.dirX * 9), arrow.y + (arrow.dirY * 9));
+    ctx.lineTo(backX + (wingX * sideLength), backY + (wingY * sideLength));
+    ctx.lineTo(backX - (wingX * sideLength), backY - (wingY * sideLength));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#ffc37e";
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(tailX + (wingX * 6), tailY + (wingY * 6));
+    ctx.lineTo(tailX - (wingX * 6), tailY - (wingY * 6));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawArrows(timeMs) {
+    drawArrowWarning(timeMs);
+    drawActiveArrow();
+  }
+
   function drawObstacle(obstacle) {
     ctx.save();
     ctx.translate(obstacle.x, obstacle.y);
@@ -1541,6 +2074,7 @@
     drawDefenderBall(state.defenders[0]);
     drawDefenderBall(state.defenders[1]);
     drawObstacles();
+    drawArrows(timeMs);
     drawDashTrail();
     drawAfterimages();
     drawPlayer();

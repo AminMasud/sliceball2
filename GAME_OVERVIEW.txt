@@ -1,5 +1,5 @@
 LINE SLICE BALLS
-GAME OVERVIEW (DASH UPDATE)
+GAME OVERVIEW (CURRENT BUILD)
 
 1) PROJECT SUMMARY
 - Platform: Web (single page, Canvas 2D)
@@ -10,56 +10,52 @@ GAME OVERVIEW (DASH UPDATE)
 
 2) CORE GAME LOOP
 1. Attacker is attached to a wall.
-2. Player touches attacker and swipes.
-3. Game calculates wall target from swipe direction.
-4. Attacker performs a fast dash to that wall point.
-5. Slice check happens during dash path.
+2. Player swipes from anywhere to aim a dash.
+3. Game computes wall landing target from swipe direction.
+4. Attacker performs a fast wall-to-wall dash.
+5. If dash path hits defender line, it counts as a slice.
 6. Score/combo/coins/hearts update.
-7. Defenders keep moving and retargeting continuously.
-8. Repeat until hearts reach 0.
+7. Defenders and hazards keep moving.
+8. Loop continues until hearts reach 0.
 
 
-3) MOVEMENT MODEL (CURRENT)
-- Attacker is wall-attached at all times when idle.
-- Attacker can attach to top, bottom, left, or right wall.
-- No free-rolling physics movement for attacker anymore.
-- Dash behavior:
-  - straight line
-  - high-speed travel
-  - short duration (~0.15 to 0.25 seconds)
-  - post-dash wall stick
-- Dash safety cooldown: 0.15 seconds.
+3) MOVEMENT MODEL
+- Attacker:
+  - Wall-attached while idle (top/bottom/left/right).
+  - No free rolling in arena.
+  - Dash duration is short (~0.15 to 0.25 sec).
+  - Post-dash attach pulse on impact.
+- Dash cooldown:
+  - 0.15 sec safety cooldown.
 
 
-4) AIM / INPUT
-- Pointer/touch:
-  - touch anywhere (including middle of arena)
-  - swipe direction
-  - release to dash
-- Aim preview:
-  - glowing path line
-  - landing marker on wall
+4) INPUT / AIM
+- Touch/swipe can start from anywhere in arena.
+- Aim preview shows:
+  - glowing projected path
+  - wall landing marker
+- Aim preview line shortens as score gets higher.
 
 
 5) SLICE DETECTION
-- Slice is checked along dash segment each frame.
-- Rule requires true crossing behavior:
-  - path intersects defender segment
-  - side changes across defender line
-  - touch-only contact does not count
-- On slice:
+- Slice is hit-based:
+  - If dash segment intersects defender segment, it is a slice.
+  - No side-cross requirement.
+- Dynamic detection is used while defenders move.
+- Slice reward:
   - +1 score
   - +1 coin
   - combo increment
-  - line vibration + FX
 
 
 6) DEFENDERS / LINE
-- Two CPU defenders stay in upper half.
-- Defenders move continuously (not per-turn waiting).
-- Defender line rendering:
-  - straight normally
-  - zigzag only when hit (slice reaction window)
+- Two defender balls move continuously across the full arena.
+- Defender balls have a hard minimum separation:
+  - They cannot move closer than the configured minimum distance.
+  - Separation is enforced at spawn, retargeting, and live updates.
+- Defender line visuals:
+  - Straight by default.
+  - Zigzag/vibration only during slice-hit reaction.
 
 
 7) HEARTS / COMBO / COINS
@@ -67,37 +63,59 @@ GAME OVERVIEW (DASH UPDATE)
 - Miss:
   - lose 1 heart
   - combo reset
-  - red flash + MISS banner
+  - MISS banner + red flash
 - Heart restore:
   - every 5 successful slices
   - capped at 2
 - Coins:
-  - 1 per slice
+  - 1 coin per slice
   - persisted in localStorage
 
 
-8) OBSTACLES
-- Spiked balls unlock at 50 slices.
-- Slow drifting/rotating behavior.
-- Hitting a spike counts as a miss.
+8) OBSTACLES (SPIKES)
+- 1st spike unlocks at 25 slices.
+- 2nd spike unlocks at 50 slices.
+- Spikes move across full arena.
+- Spike spacing rule:
+  - Spikes stay apart using a minimum separation constraint
+  - Minimum is at least 4x spike size intent (implemented as strict distance floor).
+- Hitting spike counts as miss.
 
 
-9) VISUAL FEEDBACK
+9) HAZARD (FLYING ARROWS)
+- Arrows unlock at 75 slices.
+- Arrows spawn periodically ("from time to time").
+- Before each arrow appears, a warning path line blinks.
+- Arrow then flies fast across the warned path.
+- Arrow hit counts as a miss (heart loss).
+
+
+10) SPECIAL EVENTS
+- NINJA SKILLS trigger:
+  - Triggered by fast consecutive slices in a short window.
+  - Effects:
+    - stronger shake
+    - whole-screen vibration effect
+    - NINJA SKILLS banner
+
+
+11) VISUAL FEEDBACK
 - Dash:
   - bright trail segments
   - spark particles
   - afterimages
-- Wall attach:
-  - impact pulse ring
 - Slice:
-  - sparks burst
-  - line vibration/flash
+  - spark burst
+  - line flash/vibration
   - screen flash + optional shake
+- Arrows:
+  - blinking warning lane before spawn
+  - bright flying arrow body/trail
 - Arena:
   - clean plain map color
 
 
-10) UI / OVERLAYS
+12) UI / OVERLAYS
 - HUD:
   - top-left hearts
   - top-center combo
@@ -109,17 +127,17 @@ GAME OVERVIEW (DASH UPDATE)
   - Game over (final score / best combo / coins earned)
 
 
-11) FILE MAP (ACTIVE)
+13) FILE MAP (ACTIVE)
 - index.html
   - canvas + endless HUD + overlays
 - styles.css
   - visual theme + animations
 - game.js
-  - all active gameplay logic and rendering
+  - active gameplay logic and rendering
 - src/
   - legacy files from prior architecture (not active runtime path)
 
 
-12) RUN
+14) RUN
 - Open index.html in browser.
 - No backend required.
