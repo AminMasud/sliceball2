@@ -11,12 +11,10 @@
   const OBSTACLE_UNLOCK_SLICES = 50;
   const PLAYER_RADIUS = 14;
   const DEFENDER_RADIUS = 15;
-  const MAX_DRAG_DISTANCE = 130;
-  const MAX_LAUNCH_SPEED = 930;
-  const STOP_SPEED = 26;
-  const DAMPING = 0.986;
-  const WALL_BOUNCE = 0.88;
-  const LAUNCH_Y = ARENA.height * 0.84;
+  const DASH_MIN_DURATION = 0.15;
+  const DASH_MAX_DURATION = 0.25;
+  const DASH_SPEED = 2200;
+  const DASH_COOLDOWN = 0.15;
 
   const SKINS = Object.freeze([
     {
@@ -101,10 +99,11 @@
     repositioning: false,
     player: {
       x: ARENA.width / 2,
-      y: LAUNCH_Y,
+      y: ARENA.height - PLAYER_RADIUS,
       vx: 0,
       vy: 0,
       radius: PLAYER_RADIUS,
+      wall: "bottom",
     },
     defenders: [
       {
@@ -129,12 +128,21 @@
       pointerId: null,
       x: 0,
       y: 0,
+      target: null,
     },
     shot: {
       active: false,
       sliced: false,
-      endingTimer: null,
+      hitObstacle: false,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      duration: 0,
+      elapsed: 0,
+      cooldown: 0,
       sparkleCooldown: 0,
+      afterimageCooldown: 0,
     },
     run: {
       hearts: MAX_HEARTS,
@@ -151,6 +159,9 @@
     },
     obstacles: [],
     particles: [],
+    dashTrail: [],
+    afterimages: [],
+    attachPulses: [],
     effects: {
       lineVibration: 0,
       lineFlash: 0,
@@ -250,6 +261,123 @@
       x: ((event.clientX - rect.left) / rect.width) * ARENA.width,
       y: ((event.clientY - rect.top) / rect.height) * ARENA.height,
     };
+  }
+
+  function getWallAtPoint(x, y, radius = PLAYER_RADIUS) {
+    const epsilon = 0.8;
+    const minX = radius;
+    const maxX = ARENA.width - radius;
+    const minY = radius;
+    const maxY = ARENA.height - radius;
+
+    if (Math.abs(y - minY) <= epsilon) {
+      return "top";
+    }
+    if (Math.abs(y - maxY) <= epsilon) {
+      return "bottom";
+    }
+    if (Math.abs(x - minX) <= epsilon) {
+      return "left";
+    }
+    if (Math.abs(x - maxX) <= epsilon) {
+      return "right";
+    }
+    return null;
+  }
+
+  function clampToWallBounds(point, radius = PLAYER_RADIUS) {
+    const minX = radius;
+    const maxX = ARENA.width - radius;
+    const minY = radius;
+    const maxY = ARENA.height - radius;
+    point.x = clamp(point.x, minX, maxX);
+    point.y = clamp(point.y, minY, maxY);
+    point.wall = getWallAtPoint(point.x, point.y, radius) ?? point.wall ?? "bottom";
+    return point;
+  }
+
+  function rayToWallTarget(start, direction, radius = PLAYER_RADIUS) {
+    const minX = radius;
+    const maxX = ARENA.width - radius;
+    const minY = radius;
+    const maxY = ARENA.height - radius;
+    const epsilon = 0.0001;
+    const candidates = [];
+
+    if (Math.abs(direction.x) > epsilon) {
+      const tMinX = (minX - start.x) / direction.x;
+      const yAtMinX = start.y + (direction.y * tMinX);
+      if (tMinX > epsilon && yAtMinX >= minY - epsilon && yAtMinX <= maxY + epsilon) {
+        candidates.push({ t: tMinX, x: minX, y: yAtMinX, wall: "left" });
+      }
+
+      const tMaxX = (maxX - start.x) / direction.x;
+      const yAtMaxX = start.y + (direction.y * tMaxX);
+      if (tMaxX > epsilon && yAtMaxX >= minY - epsilon && yAtMaxX <= maxY + epsilon) {
+        candidates.push({ t: tMaxX, x: maxX, y: yAtMaxX, wall: "right" });
+      }
+    }
+
+    if (Math.abs(direction.y) > epsilon) {
+      const tMinY = (minY - start.y) / direction.y;
+      const xAtMinY = start.x + (direction.x * tMinY);
+      if (tMinY > epsilon && xAtMinY >= minX - epsilon && xAtMinY <= maxX + epsilon) {
+        candidates.push({ t: tMinY, x: xAtMinY, y: minY, wall: "top" });
+      }
+
+      const tMaxY = (maxY - start.y) / direction.y;
+      const xAtMaxY = start.x + (direction.x * tMaxY);
+      if (tMaxY > epsilon && xAtMaxY >= minX - epsilon && xAtMaxY <= maxX + epsilon) {
+        candidates.push({ t: tMaxY, x: xAtMaxY, y: maxY, wall: "bottom" });
+      }
+    }
+
+    if (!candidates.length) {
+      return null;
+    }
+
+    candidates.sort((a, b) => a.t - b.t);
+    return clampToWallBounds({
+      x: candidates[0].x,
+      y: candidates[0].y,
+      wall: candidates[0].wall,
+    }, radius);
+  }
+
+  function resolveDashTargetFromSwipe(point) {
+    const swipe = normalize(point.x - state.player.x, point.y - state.player.y);
+    if (Math.abs(swipe.x) < 0.0001 && Math.abs(swipe.y) < 0.0001) {
+      return null;
+    }
+
+    const start = { x: state.player.x, y: state.player.y };
+    let target = rayToWallTarget(start, swipe, state.player.radius);
+    if (!target) {
+      target = rayToWallTarget(start, { x: -swipe.x, y: -swipe.y }, state.player.radius);
+    }
+    return target;
+  }
+
+  function distancePointToSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSq = (abx * abx) + (aby * aby);
+
+    if (lengthSq <= 0.000001) {
+      return Math.hypot(px - ax, py - ay);
+    }
+
+    const apx = px - ax;
+    const apy = py - ay;
+    const t = clamp(((apx * abx) + (apy * aby)) / lengthSq, 0, 1);
+    const closestX = ax + (abx * t);
+    const closestY = ay + (aby * t);
+    return Math.hypot(px - closestX, py - closestY);
+  }
+
+  function segmentHitsObstacle(a, b, obstacle, extraRadius) {
+    const hitDistance = obstacle.radius + extraRadius;
+    return distancePointToSegment(obstacle.x, obstacle.y, a.x, a.y, b.x, b.y) <= hitDistance;
   }
 
   function setOverlay(name) {
@@ -571,11 +699,16 @@
     state.repositioning = false;
   }
 
-  function resetPlayerForShot() {
-    state.player.x = ARENA.width / 2;
-    state.player.y = LAUNCH_Y;
+  function attachPlayerToWall(x, y, wall = null) {
+    state.player.x = x;
+    state.player.y = y;
     state.player.vx = 0;
     state.player.vy = 0;
+    state.player.wall = wall ?? getWallAtPoint(x, y, state.player.radius) ?? state.player.wall ?? "bottom";
+  }
+
+  function resetPlayerToStartWall() {
+    attachPlayerToWall(ARENA.width / 2, ARENA.height - state.player.radius, "bottom");
   }
 
   function updateDifficulty() {
@@ -712,7 +845,6 @@
     }
 
     state.shot.sliced = true;
-    state.shot.endingTimer = 0.08;
 
     state.run.score += 1;
     state.run.combo += 1;
@@ -734,7 +866,7 @@
     };
 
     emitSliceSparks(lineMidpoint, "rgba(237, 249, 255, 0.95)", 18);
-    state.effects.lineVibration = 16 + (state.run.difficulty * 0.04);
+    state.effects.lineVibration = 11 + (state.run.lineOscillation * 0.9);
     state.effects.lineFlash = 1;
     triggerShake(0.22, 8 + (state.run.difficulty * 0.04));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9, 0.12);
@@ -756,10 +888,29 @@
   }
 
   function finalizeShot(missed) {
+    const landingPoint = clampToWallBounds({
+      x: state.shot.endX,
+      y: state.shot.endY,
+      wall: getWallAtPoint(state.shot.endX, state.shot.endY, state.player.radius),
+    }, state.player.radius);
+
+    attachPlayerToWall(landingPoint.x, landingPoint.y, landingPoint.wall);
     state.shot.active = false;
-    state.shot.endingTimer = null;
-    state.player.vx = 0;
-    state.player.vy = 0;
+    state.shot.elapsed = 0;
+    state.shot.duration = 0;
+    state.shot.cooldown = DASH_COOLDOWN;
+    state.shot.hitObstacle = false;
+    state.canShoot = false;
+
+    state.attachPulses.push({
+      x: state.player.x,
+      y: state.player.y,
+      life: 0.18,
+      maxLife: 0.18,
+      radius: state.player.radius * 0.7,
+      maxRadius: state.player.radius * 2.5,
+      color: getActiveSkin().glow,
+    });
 
     if (missed) {
       loseHeart();
@@ -770,10 +921,6 @@
         return;
       }
     }
-
-    resetPlayerForShot();
-    planDefenderReposition();
-    state.canShoot = true;
   }
 
   function startRun() {
@@ -796,12 +943,18 @@
     state.canShoot = true;
     state.shot.active = false;
     state.shot.sliced = false;
-    state.shot.endingTimer = null;
+    state.shot.hitObstacle = false;
+    state.shot.elapsed = 0;
+    state.shot.duration = 0;
+    state.shot.cooldown = 0;
     state.aim.active = false;
     updateDifficulty();
     setDefendersToPair(chooseDefenderPair());
     planDefenderReposition();
-    resetPlayerForShot();
+    resetPlayerToStartWall();
+    state.dashTrail.length = 0;
+    state.afterimages.length = 0;
+    state.attachPulses.length = 0;
     syncHeartsInstant();
     updateComboDisplay();
     updateCoinDisplays();
@@ -830,38 +983,43 @@
   }
 
   function beginLaunch(pointerPoint) {
-    if (!state.inRun || !state.canShoot || state.shot.active) {
-      return;
-    }
-
-    const pickDistance = distance(pointerPoint.x, pointerPoint.y, state.player.x, state.player.y);
-    if (pickDistance > state.player.radius + 18) {
+    if (!state.inRun || !state.canShoot || state.shot.active || state.shot.cooldown > 0) {
       return;
     }
 
     state.aim.active = true;
     state.aim.x = pointerPoint.x;
     state.aim.y = pointerPoint.y;
+    state.aim.target = resolveDashTargetFromSwipe(pointerPoint);
   }
 
   function launchFromPointer(pointerPoint) {
-    const dragX = state.player.x - pointerPoint.x;
-    const dragY = state.player.y - pointerPoint.y;
-    const dragDistance = Math.hypot(dragX, dragY);
+    const dragDistance = Math.hypot(pointerPoint.x - state.player.x, pointerPoint.y - state.player.y);
     if (dragDistance < 8) {
       return;
     }
 
-    const direction = normalize(dragX, dragY);
-    const scaledDistance = Math.min(dragDistance, MAX_DRAG_DISTANCE);
-    const speed = (scaledDistance / MAX_DRAG_DISTANCE) * MAX_LAUNCH_SPEED;
+    const target = resolveDashTargetFromSwipe(pointerPoint);
 
-    state.player.vx = direction.x * speed;
-    state.player.vy = direction.y * speed;
+    if (!target) {
+      return;
+    }
+
+    const dashDistance = distance(state.player.x, state.player.y, target.x, target.y);
+    const duration = clamp(dashDistance / DASH_SPEED, DASH_MIN_DURATION, DASH_MAX_DURATION);
+
     state.shot.active = true;
     state.shot.sliced = false;
-    state.shot.endingTimer = null;
+    state.shot.hitObstacle = false;
+    state.shot.startX = state.player.x;
+    state.shot.startY = state.player.y;
+    state.shot.endX = target.x;
+    state.shot.endY = target.y;
+    state.shot.duration = duration;
+    state.shot.elapsed = 0;
+    state.shot.cooldown = 0;
     state.shot.sparkleCooldown = 0;
+    state.shot.afterimageCooldown = 0;
     state.canShoot = false;
   }
 
@@ -923,69 +1081,75 @@
       return;
     }
 
-    const player = state.player;
-    const previous = { x: player.x, y: player.y };
-    player.x += player.vx * dt;
-    player.y += player.vy * dt;
+    const previous = { x: state.player.x, y: state.player.y };
+    state.shot.elapsed = Math.min(state.shot.duration, state.shot.elapsed + dt);
+    const t = state.shot.duration > 0 ? state.shot.elapsed / state.shot.duration : 1;
+    state.player.x = lerp(state.shot.startX, state.shot.endX, t);
+    state.player.y = lerp(state.shot.startY, state.shot.endY, t);
+    state.player.vx = (state.shot.endX - state.shot.startX) / Math.max(0.0001, state.shot.duration);
+    state.player.vy = (state.shot.endY - state.shot.startY) / Math.max(0.0001, state.shot.duration);
 
-    const dampingFactor = Math.pow(DAMPING, dt * 60);
-    player.vx *= dampingFactor;
-    player.vy *= dampingFactor;
-
-    if (player.x <= player.radius) {
-      player.x = player.radius;
-      player.vx = Math.abs(player.vx) * WALL_BOUNCE;
-    } else if (player.x >= ARENA.width - player.radius) {
-      player.x = ARENA.width - player.radius;
-      player.vx = -Math.abs(player.vx) * WALL_BOUNCE;
-    }
-
-    if (player.y <= player.radius) {
-      player.y = player.radius;
-      player.vy = Math.abs(player.vy) * WALL_BOUNCE;
-    } else if (player.y >= ARENA.height - player.radius) {
-      player.y = ARENA.height - player.radius;
-      player.vy = -Math.abs(player.vy) * WALL_BOUNCE;
+    state.dashTrail.push({
+      ax: previous.x,
+      ay: previous.y,
+      bx: state.player.x,
+      by: state.player.y,
+      life: 0.2,
+      maxLife: 0.2,
+      color: getActiveSkin().glow,
+    });
+    if (state.dashTrail.length > 80) {
+      state.dashTrail.splice(0, state.dashTrail.length - 80);
     }
 
     state.shot.sparkleCooldown -= dt;
     if (state.shot.sparkleCooldown <= 0) {
       emitSparkle();
-      state.shot.sparkleCooldown = 0.018;
+      state.shot.sparkleCooldown = 0.012;
+    }
+
+    state.shot.afterimageCooldown -= dt;
+    if (state.shot.afterimageCooldown <= 0) {
+      state.afterimages.push({
+        x: state.player.x,
+        y: state.player.y,
+        life: 0.12,
+        maxLife: 0.12,
+        radius: state.player.radius,
+        color: getActiveSkin().glow,
+      });
+      if (state.afterimages.length > 40) {
+        state.afterimages.splice(0, state.afterimages.length - 40);
+      }
+      state.shot.afterimageCooldown = 0.018;
     }
 
     if (!state.shot.sliced) {
-      const sliceImpact = detectSlice(previous, player);
+      const sliceImpact = detectSlice(previous, state.player);
       if (sliceImpact) {
         onSlice(sliceImpact);
       }
     }
 
-    if (!state.shot.sliced && state.run.obstacleUnlocked) {
+    if (state.run.obstacleUnlocked && !state.shot.hitObstacle) {
       const obstacleHit = state.obstacles.some((obstacle) => {
-        const hitRadius = obstacle.radius + player.radius;
-        return distance(player.x, player.y, obstacle.x, obstacle.y) <= hitRadius;
+        return segmentHitsObstacle(
+          previous,
+          { x: state.player.x, y: state.player.y },
+          obstacle,
+          state.player.radius,
+        );
       });
 
       if (obstacleHit) {
-        state.shot.endingTimer = 0;
-        state.shot.sliced = false;
-        emitSliceSparks({ x: player.x, y: player.y }, "rgba(211, 123, 123, 0.9)", 14);
+        state.shot.hitObstacle = true;
+        emitSliceSparks({ x: state.player.x, y: state.player.y }, "rgba(211, 123, 123, 0.9)", 14);
         showBanner("SPIKE HIT", "miss");
       }
     }
 
-    if (state.shot.endingTimer !== null) {
-      state.shot.endingTimer -= dt;
-      if (state.shot.endingTimer <= 0) {
-        finalizeShot(!state.shot.sliced);
-      }
-      return;
-    }
-
-    const speed = Math.hypot(player.vx, player.vy);
-    if (speed <= STOP_SPEED) {
-      finalizeShot(!state.shot.sliced);
+    if (state.shot.elapsed >= state.shot.duration || state.shot.hitObstacle) {
+      finalizeShot(!state.shot.sliced || state.shot.hitObstacle);
     }
   }
 
@@ -1027,10 +1191,32 @@
     } else {
       dom.screenFlash.style.opacity = "0";
     }
+
+    state.dashTrail = state.dashTrail.filter((trail) => {
+      trail.life -= dt;
+      return trail.life > 0;
+    });
+
+    state.afterimages = state.afterimages.filter((ghost) => {
+      ghost.life -= dt;
+      return ghost.life > 0;
+    });
+
+    state.attachPulses = state.attachPulses.filter((pulse) => {
+      pulse.life -= dt;
+      return pulse.life > 0;
+    });
   }
 
   function update(dt) {
     updateEffects(dt);
+
+    if (state.shot.cooldown > 0) {
+      state.shot.cooldown = Math.max(0, state.shot.cooldown - dt);
+      if (state.shot.cooldown <= 0 && state.inRun && !state.shot.active) {
+        state.canShoot = true;
+      }
+    }
 
     if (!state.inRun) {
       updateParticles(dt);
@@ -1104,7 +1290,7 @@
     const normalX = -dy / length;
     const normalY = dx / length;
     const segments = 16;
-    const amplitude = 2.8 + vibe;
+    const amplitude = 2.4 + (state.run.lineOscillation * 0.22) + vibe;
     const phase = timeMs * 0.018;
     ctx.beginPath();
     for (let i = 0; i <= segments; i += 1) {
@@ -1192,46 +1378,40 @@
     }
 
     const player = state.player;
-    const dragX = player.x - state.aim.x;
-    const dragY = player.y - state.aim.y;
-    const dragDistance = Math.hypot(dragX, dragY);
+    const swipeX = state.aim.x - player.x;
+    const swipeY = state.aim.y - player.y;
+    const dragDistance = Math.hypot(swipeX, swipeY);
     if (dragDistance < 3) {
       return;
     }
 
-    const clampedDistance = Math.min(dragDistance, MAX_DRAG_DISTANCE);
-    const scale = clampedDistance / dragDistance;
-    const tipX = player.x + (dragX * scale);
-    const tipY = player.y + (dragY * scale);
-    const powerRatio = clampedDistance / MAX_DRAG_DISTANCE;
+    const target = state.aim.target;
+    if (!target) {
+      return;
+    }
 
     ctx.save();
     ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(16, 57, 99, 0.45)";
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(42, 200, 255, 0.75)";
+    ctx.shadowColor = "rgba(42, 200, 255, 0.65)";
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
-    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(target.x, target.y);
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
     ctx.beginPath();
-    ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
+    ctx.arc(target.x, target.y, 4.5, 0, Math.PI * 2);
     ctx.fill();
 
-    const meterX = 62;
-    const meterY = ARENA.height - 28;
-    const meterWidth = ARENA.width - 124;
-    const meterHeight = 8;
-
-    ctx.fillStyle = "rgba(16, 57, 99, 0.14)";
-    ctx.fillRect(meterX, meterY, meterWidth, meterHeight);
-
-    const meterGradient = ctx.createLinearGradient(meterX, meterY, meterX + meterWidth, meterY);
-    meterGradient.addColorStop(0, "#39d2ba");
-    meterGradient.addColorStop(1, "#ff9b59");
-    ctx.fillStyle = meterGradient;
-    ctx.fillRect(meterX, meterY, meterWidth * powerRatio, meterHeight);
+    ctx.strokeStyle = "rgba(42, 200, 255, 0.36)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, state.player.radius + 5, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1246,6 +1426,62 @@
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function drawDashTrail() {
+    state.dashTrail.forEach((trail) => {
+      const ratio = trail.maxLife > 0 ? trail.life / trail.maxLife : 0;
+      if (ratio <= 0) {
+        return;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = ratio;
+      ctx.strokeStyle = trail.color;
+      ctx.lineCap = "round";
+      ctx.lineWidth = 2 + (ratio * 3);
+      ctx.beginPath();
+      ctx.moveTo(trail.ax, trail.ay);
+      ctx.lineTo(trail.bx, trail.by);
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
+  function drawAfterimages() {
+    state.afterimages.forEach((ghost) => {
+      const ratio = ghost.maxLife > 0 ? ghost.life / ghost.maxLife : 0;
+      if (ratio <= 0) {
+        return;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = ratio * 0.45;
+      ctx.fillStyle = ghost.color;
+      ctx.beginPath();
+      ctx.arc(ghost.x, ghost.y, ghost.radius * (0.9 + ((1 - ratio) * 0.2)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function drawAttachPulses() {
+    state.attachPulses.forEach((pulse) => {
+      const ratio = pulse.maxLife > 0 ? pulse.life / pulse.maxLife : 0;
+      if (ratio <= 0) {
+        return;
+      }
+
+      const radius = pulse.radius + ((1 - ratio) * (pulse.maxRadius - pulse.radius));
+      ctx.save();
+      ctx.globalAlpha = ratio * 0.75;
+      ctx.strokeStyle = pulse.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(pulse.x, pulse.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     });
   }
@@ -1305,7 +1541,10 @@
     drawDefenderBall(state.defenders[0]);
     drawDefenderBall(state.defenders[1]);
     drawObstacles();
+    drawDashTrail();
+    drawAfterimages();
     drawPlayer();
+    drawAttachPulses();
     drawParticles();
     drawAimGuide();
     ctx.restore();
@@ -1347,6 +1586,7 @@
     const point = pointToCanvas(event);
     state.aim.x = point.x;
     state.aim.y = point.y;
+    state.aim.target = resolveDashTargetFromSwipe(point);
   });
 
   function releaseAim(event) {
@@ -1355,9 +1595,11 @@
     }
 
     const point = pointToCanvas(event);
+    state.aim.target = resolveDashTargetFromSwipe(point);
     state.aim.active = false;
     state.aim.pointerId = null;
     launchFromPointer(point);
+    state.aim.target = null;
   }
 
   dom.canvas.addEventListener("pointerup", releaseAim);
@@ -1365,6 +1607,7 @@
     if (state.aim.active && event.pointerId === state.aim.pointerId) {
       state.aim.active = false;
       state.aim.pointerId = null;
+      state.aim.target = null;
     }
   });
   dom.canvas.addEventListener("pointerleave", releaseAim);

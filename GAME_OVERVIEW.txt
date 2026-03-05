@@ -1,188 +1,125 @@
-LINE-SLICE BALLS
-REVIEW OVERVIEW
+LINE SLICE BALLS
+GAME OVERVIEW (DASH UPDATE)
 
 1) PROJECT SUMMARY
 - Platform: Web (single page, Canvas 2D)
-- Stack: HTML + CSS + JavaScript (no backend)
-- Goal: A physics-based line-crossing game with attacker/defender roles, turn modes, and visual feedback.
-- Build artifact: game.js (bundled from src/main.js)
+- Stack: HTML + CSS + JavaScript
+- Runtime entry: game.js loaded by index.html
+- Mode: Endless single-player arcade
 
 
-2) CORE GAME MODEL
-- Arena size: 360 x 640 (portrait)
-- Each team has 3 pieces:
-  - Ball 0: Defender (circle)
-  - Ball 1: Defender (circle)
-  - Ball 2: Attacker (triangle)
-- The line is always between the two defenders (0 and 1).
-- The attacker is never part of the line.
+2) CORE GAME LOOP
+1. Attacker is attached to a wall.
+2. Player touches attacker and swipes.
+3. Game calculates wall target from swipe direction.
+4. Attacker performs a fast dash to that wall point.
+5. Slice check happens during dash path.
+6. Score/combo/coins/hearts update.
+7. Defenders keep moving and retargeting continuously.
+8. Repeat until hearts reach 0.
 
 
-3) CURRENT GAME MODES
-
-A) SOLO (PLAY)
-- Human vs CPU.
-- Setup:
-  - Human places 2 defenders + 1 attacker in bottom half.
-  - CPU is auto-placed randomly in top half after human setup.
-- Turn logic:
-  - Two actions per side:
-    1. Attacker move
-    2. Defender move (player can choose either defender)
-- Scoring:
-  - A point is awarded when attacker crosses the opponent defender line.
-  - First to 3 points wins.
-
-B) LOCAL MULTIPLAYER (LOCAL MULTIPLAYER)
-- Two humans on one device.
-- Same rules/scoring as Solo (attacker + defender action sequence).
-- Setup privacy flow:
-  - Player 1 places pieces.
-  - Screen is hidden until REVEAL.
-  - Player 2 places pieces without seeing Player 1 layout.
-  - Final REVEAL starts the match.
-
-C) FREE MODE (FREE MODE)
-- Player vs CPU sandbox mode.
-- No turn restrictions and no global wait for all pieces to settle.
-- Both teams are auto-placed randomly.
-- Player can launch any of Player 1 pieces at any time.
-- CPU keeps launching its own pieces on a cooldown.
-- A launch is blocked only if that specific selected piece is still moving.
-- Slices/points are active in this mode.
-- No automatic match end in free mode.
+3) MOVEMENT MODEL (CURRENT)
+- Attacker is wall-attached at all times when idle.
+- Attacker can attach to top, bottom, left, or right wall.
+- No free-rolling physics movement for attacker anymore.
+- Dash behavior:
+  - straight line
+  - high-speed travel
+  - short duration (~0.15 to 0.25 seconds)
+  - post-dash wall stick
+- Dash safety cooldown: 0.15 seconds.
 
 
-4) INPUT / CONTROLS
-- Pointer/touch control:
-  - Tap a piece to select.
-  - Drag backward to set direction and power.
-  - Release to launch.
-- During setup, tap in legal zone to place each piece.
-- In turn modes, role restrictions are enforced (attacker phase vs defender phase).
-- In free mode, you can launch while other pieces are still moving.
+4) AIM / INPUT
+- Pointer/touch:
+  - touch anywhere (including middle of arena)
+  - swipe direction
+  - release to dash
+- Aim preview:
+  - glowing path line
+  - landing marker on wall
 
 
-5) PHYSICS & COLLISION SYSTEM
-- Motion update:
-  - position += velocity * dt
-  - damping applied each frame
-  - wall bounce with damping
-- Piece-piece collision:
-  - Circle collision resolution with impulse response
-  - Overlap correction
-  - Impact speed captured for effects
-- Forced defender separation:
-  - Defenders are pushed apart if too close (minimum gap enforced)
-  - Burst velocity can be applied to separate them during motion
+5) SLICE DETECTION
+- Slice is checked along dash segment each frame.
+- Rule requires true crossing behavior:
+  - path intersects defender segment
+  - side changes across defender line
+  - touch-only contact does not count
+- On slice:
+  - +1 score
+  - +1 coin
+  - combo increment
+  - line vibration + FX
 
 
-6) LINE CROSSING / HIT RULE
-- Hit detection requires full crossing behavior.
-- Current check is not "touch radius only":
-  - Attacker path must cross line segment from one side to the other.
-  - Segment intersection is required along movement path.
-- Slice scoring:
-  - Crossing the opponent line is enough to score.
-  - This rule is active in turn modes and in free mode attacker shots.
+6) DEFENDERS / LINE
+- Two CPU defenders stay in upper half.
+- Defenders move continuously (not per-turn waiting).
+- Defender line rendering:
+  - straight normally
+  - zigzag only when hit (slice reaction window)
 
 
-7) AI (SOLO MODE)
-- CPU attacker phase:
-  - Samples candidate launch directions/power.
-  - Simulates short physics rollout.
-  - Prioritizes opponent-line crossing.
-  - Falls back to best approximation if no enemy-line hit is found.
-- CPU defender phase:
-  - Chooses a defender and applies medium power toward player line area.
+7) HEARTS / COMBO / COINS
+- Hearts: max 2.
+- Miss:
+  - lose 1 heart
+  - combo reset
+  - red flash + MISS banner
+- Heart restore:
+  - every 5 successful slices
+  - capped at 2
+- Coins:
+  - 1 per slice
+  - persisted in localStorage
 
 
-8) VISUALS & FEEDBACK
-- Clean gradient arena with top/bottom zone tint and midline.
-- Defenders: shaded circles.
-- Attacker: spinning triangle while moving.
-- Moving attacker aura/halo trail.
-- Connection lines: glowing translucent segments between defenders.
-- Collision wave effect on stronger piece-piece impacts.
-- Spark effects for line-cross events.
-- Center-screen comic-style banners:
-  - Examples: SLICE, POINT, MISS, ALMOST, MOVE, NOPE.
-  - Banner minimum visibility duration is extended (>= 1.4s by current config).
+8) OBSTACLES
+- Spiked balls unlock at 50 slices.
+- Slow drifting/rotating behavior.
+- Hitting a spike counts as a miss.
 
 
-9) MENU / UX
-- Full-screen menu overlay with light/white background theme.
-- Game title is the largest menu text.
-- Main actions:
-  - PLAY
-  - FREE MODE
-  - LOCAL MULTIPLAYER
-  - RESTART
-  - OPTIONS
-  - QUIT
-- PLAY button is intentionally larger than the other menu buttons.
+9) VISUAL FEEDBACK
+- Dash:
+  - bright trail segments
+  - spark particles
+  - afterimages
+- Wall attach:
+  - impact pulse ring
+- Slice:
+  - sparks burst
+  - line vibration/flash
+  - screen flash + optional shake
+- Arena:
+  - clean plain map color
 
 
-10) OPTIONS / CUSTOMIZATION
-- Color options for Player 1 and Player 2 palettes.
-- Available palette keys: aqua, coral, gold, sky.
-- Duplicate color usage is blocked:
-  - Both sides cannot share the same color.
-  - Invalid color buttons are disabled in UI.
+10) UI / OVERLAYS
+- HUD:
+  - top-left hearts
+  - top-center combo
+  - top-right coins
+- Overlays:
+  - Main menu (Play / Shop / Options)
+  - Shop (skin unlock/equip)
+  - Options (screen shake toggle)
+  - Game over (final score / best combo / coins earned)
 
 
-11) FIRST-LAUNCH TUTORIAL
-- Tutorial overlay appears on first launch only.
-- Stored flag key in localStorage:
-  - lineSliceBallsTutorialSeenV1
-- START button dismisses tutorial and marks it as seen.
-
-
-12) UI STATES / FLOW (IMPLEMENTED)
-- MENU
-- PLAYER_SETUP
-- PLAYER_AIM
-- PLAYER_SHOT
-- CPU_THINK
-- CPU_SHOT
-- ROUND_END
-- GAME_OVER
-
-
-13) FILE MAP (MAIN)
+11) FILE MAP (ACTIVE)
 - index.html
-  - Canvas, HUD, overlays (menu/tutorial/reveal/game-over)
+  - canvas + endless HUD + overlays
 - styles.css
-  - App styling, menu, options, overlays, tutorial
-- src/main.js
-  - State machine, input handling, game loop, mode logic, setup, scoring
-- src/game/entities.js
-  - Core constants, team/ball entity factories, selection, line segment helpers
-- src/game/renderer.js
-  - Full canvas rendering (arena, units, effects, banners)
-- src/game/ai.js
-  - CPU shot selection simulation
-- src/engine/physics.js
-  - Motion, damping, wall bounce, piece collision
-- src/engine/collisions.js
-  - Moving-piece line-cross detection
-- src/engine/geometry.js
-  - Vector/segment geometry helpers
-- src/game/state.js
-  - Enumerated game states
+  - visual theme + animations
 - game.js
-  - Browser bundle output
+  - all active gameplay logic and rendering
+- src/
+  - legacy files from prior architecture (not active runtime path)
 
 
-14) RUN / BUILD
-- Run:
-  - Open index.html in browser (game.js already bundled).
-- Rebuild after src changes:
-  - npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfile=game.js
-
-
-15) CURRENT SCOPE / NON-GOALS
-- No backend, account system, or networking.
-- No online multiplayer.
-- No obstacles/powerups in current build.
-- Free Mode does not enforce turn order or auto-end the match.
+12) RUN
+- Open index.html in browser.
+- No backend required.
