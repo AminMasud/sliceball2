@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Line Slice Balls - Endless</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="game-card">
+      <header class="hud">
+        <div class="hud-block">
+          <p class="hud-label">Hearts</p>
+          <div class="hearts" id="hearts">
+            <div class="heart-slot intact" data-heart-index="0">
+              <span class="heart-half left">♥</span>
+              <span class="heart-half right">♥</span>
+            </div>
+            <div class="heart-slot intact" data-heart-index="1">
+              <span class="heart-half left">♥</span>
+              <span class="heart-half right">♥</span>
+            </div>
+          </div>
+        </div>
+        <div class="hud-block combo-block">
+          <p class="hud-label">Combo</p>
+          <p class="combo-value" id="comboValue">0x</p>
+        </div>
+        <div class="hud-block coins-block">
+          <p class="hud-label">Coins</p>
+          <p class="coins-value" id="coinsValue">0</p>
+        </div>
+      </header>
+
+      <div class="arena-shell">
+        <canvas id="gameCanvas" width="360" height="640" aria-label="Line Slice Balls Endless Mode"></canvas>
+        <div id="screenFlash" class="screen-flash"></div>
+        <div id="centerBanner" class="center-banner hidden">MISS</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="overlay" id="menuOverlay">
+    <div class="overlay-card menu-card">
+      <p class="eyebrow">Arcade Endless</p>
+      <h1>Line Slice Balls</h1>
+      <p class="overlay-copy">Slice the CPU line, chain combos, and survive with 2 hearts.</p>
+      <p class="wallet-text" id="menuWalletText">Coins: 0</p>
+      <div class="overlay-buttons">
+        <button id="playButton" type="button">Play</button>
+        <button id="shopButton" type="button">Shop</button>
+        <button id="optionsButton" type="button">Options</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="shopOverlay">
+    <div class="overlay-card shop-card">
+      <p class="eyebrow">Cosmetics</p>
+      <h2>Attacker Shop</h2>
+      <p class="wallet-text" id="shopWalletText">Coins: 0</p>
+      <div id="shopItems" class="shop-items"></div>
+      <div class="overlay-buttons">
+        <button id="shopBackButton" type="button">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="optionsOverlay">
+    <div class="overlay-card options-card">
+      <p class="eyebrow">Game Feel</p>
+      <h2>Options</h2>
+      <div class="option-row">
+        <span>Screen Shake</span>
+        <button id="shakeToggleButton" type="button">On</button>
+      </div>
+      <div class="overlay-buttons">
+        <button id="optionsBackButton" type="button">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="gameOverOverlay">
+    <div class="overlay-card game-over-card">
+      <p class="eyebrow">Game Over</p>
+      <h2>Run Ended</h2>
+      <div class="stats-grid">
+        <div class="stat-cell">
+          <span>Final Score</span>
+          <strong id="finalScore">0</strong>
+        </div>
+        <div class="stat-cell">
+          <span>Best Combo</span>
+          <strong id="bestCombo">0x</strong>
+        </div>
+        <div class="stat-cell">
+          <span>Coins Earned</span>
+          <strong id="coinsEarned">0</strong>
+        </div>
+      </div>
+      <div class="overlay-buttons">
+        <button id="restartButton" type="button">Restart</button>
+        <button id="gameOverShopButton" type="button">Shop</button>
+        <button id="mainMenuButton" type="button">Main Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
