@@ -70,27 +70,65 @@ GAME OVERVIEW (CURRENT BUILD)
 - Coins:
   - 1 coin per slice
   - persisted in localStorage
+- Record:
+  - best score is saved in localStorage
+  - updates automatically when a run beats previous best
+  - shown in menu and game-over screen
 
 
-8) OBSTACLES (SPIKES)
+8) ATTACKER SKINS (COSMETIC)
+- Character style:
+  - round chubby ninja blob
+  - angry eyes + small mouth
+  - thick outline + glow aura
+- Skin data model per character:
+  - id, name, theme, colorPrimary, colorGlow, particleStyle, unlockCost
+- Current skin roster:
+  - Neon Ninja (Energy): default unlocked
+  - Fire Ninja: 150 coins
+  - Water Ninja: 150 coins
+  - Lightning Ninja: 250 coins
+  - Earth Ninja: 250 coins
+  - Blossom Ninja: 300 coins
+- Skin effects are cosmetic only (no gameplay stat changes).
+
+
+9) DASH VFX BY SKIN
+- Dash trail + particles switch by selected skin.
+- Style examples:
+  - Fire: ember-like particles and hot streak color
+  - Water: droplet particles and cool ripple-like trail
+  - Lightning: spark particles and jagged streak
+  - Earth: dust/shard particles and rugged streak
+  - Blossom: petal-like particles and soft streak
+- Particle performance rules:
+  - max 20 dash particles per dash
+  - dash particles fade in <= 0.6 sec
+
+
+10) OBSTACLES (SPIKES)
 - 1st spike unlocks at 25 slices.
 - 2nd spike unlocks at 50 slices.
 - Spikes move across full arena.
+- Spike speed behavior:
+  - Starts faster than before.
+  - Smoothly accelerates as slices increase (difficulty advance).
+  - Has a top-speed cap to keep control and performance stable.
 - Spike spacing rule:
   - Spikes stay apart using a minimum separation constraint
   - Minimum is at least 4x spike size intent (implemented as strict distance floor).
 - Hitting spike counts as miss.
 
 
-9) HAZARD (FLYING ARROWS)
+11) HAZARD (FLYING ARROWS)
 - Arrows unlock at 75 slices.
-- Arrows spawn periodically ("from time to time").
+- Arrows spawn periodically.
 - Before each arrow appears, a warning path line blinks.
 - Arrow then flies fast across the warned path.
 - Arrow hit counts as a miss (heart loss).
 
 
-10) SPECIAL EVENTS
+12) SPECIAL EVENTS
 - NINJA SKILLS trigger:
   - Triggered by fast consecutive slices in a short window.
   - Effects:
@@ -99,10 +137,10 @@ GAME OVERVIEW (CURRENT BUILD)
     - NINJA SKILLS banner
 
 
-11) VISUAL FEEDBACK
+13) VISUAL FEEDBACK
 - Dash:
-  - bright trail segments
-  - spark particles
+  - themed trail segments
+  - themed particles
   - afterimages
 - Slice:
   - spark burst
@@ -115,19 +153,19 @@ GAME OVERVIEW (CURRENT BUILD)
   - clean plain map color
 
 
-12) UI / OVERLAYS
+14) UI / OVERLAYS
 - HUD:
   - top-left hearts
   - top-center combo
   - top-right coins
 - Overlays:
   - Main menu (Play / Shop / Options)
-  - Shop (skin unlock/equip)
+  - Shop (buy + select skins)
   - Options (screen shake toggle)
-  - Game over (final score / best combo / coins earned)
+  - Game over (final score / best combo / coins earned / record)
 
 
-13) FILE MAP (ACTIVE)
+15) FILE MAP (ACTIVE)
 - index.html
   - canvas + endless HUD + overlays
 - styles.css
@@ -138,6 +176,6 @@ GAME OVERVIEW (CURRENT BUILD)
   - legacy files from prior architecture (not active runtime path)
 
 
-14) RUN
+16) RUN
 - Open index.html in browser.
 - No backend required.
