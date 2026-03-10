@@ -2,8 +2,8 @@
   "use strict";
 
   const ARENA = Object.freeze({
-    width: 360,
-    height: 640,
+    width: 420,
+    height: 420,
   });
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
@@ -191,17 +191,17 @@
     defenders: [
       {
         x: ARENA.width * 0.35,
-        y: 130,
+        y: ARENA.height * 0.3,
         targetX: ARENA.width * 0.35,
-        targetY: 130,
+        targetY: ARENA.height * 0.3,
         retargetAt: 0,
         radius: DEFENDER_RADIUS,
       },
       {
         x: ARENA.width * 0.65,
-        y: 170,
+        y: ARENA.height * 0.42,
         targetX: ARENA.width * 0.65,
-        targetY: 170,
+        targetY: ARENA.height * 0.42,
         retargetAt: 0,
         radius: DEFENDER_RADIUS,
       },
@@ -542,13 +542,13 @@
 
     const glowAlpha = clamp(0.2 + (combo * 0.09), 0.22, 0.95);
     const glowSize = 10 + (combo * 2.9);
-    const hue = clamp(188 - (combo * 3), 138, 188);
+    const hue = clamp(44 - (combo * 1.2), 20, 44);
     state.effects.comboBoost = combo <= 0 ? 0 : clamp(combo * 0.12, 0, 1.7);
 
     dom.comboValue.style.color = combo <= 0
-      ? "#18bdd3"
+      ? "#ffd75a"
       : `hsl(${hue} 100% 58%)`;
-    dom.comboValue.style.textShadow = `0 0 ${glowSize}px rgba(57, 240, 255, ${glowAlpha})`;
+    dom.comboValue.style.textShadow = `0 0 ${glowSize}px rgba(255, 200, 72, ${glowAlpha})`;
 
     if (bump) {
       dom.comboValue.classList.remove("bump");
@@ -1929,8 +1929,36 @@
   }
 
   function drawBackdrop() {
-    ctx.fillStyle = "#eef3fb";
+    const backdrop = ctx.createLinearGradient(0, 0, 0, ARENA.height);
+    backdrop.addColorStop(0, "#99511c");
+    backdrop.addColorStop(0.45, "#7b3c13");
+    backdrop.addColorStop(1, "#5d270b");
+    ctx.fillStyle = backdrop;
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 208, 107, 0.08)";
+    ctx.lineWidth = 2;
+    for (let y = 28; y < ARENA.height; y += 36) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(ARENA.width, y);
+      ctx.stroke();
+    }
+
+    const glow = ctx.createRadialGradient(
+      ARENA.width * 0.28,
+      ARENA.height * 0.2,
+      8,
+      ARENA.width * 0.28,
+      ARENA.height * 0.2,
+      ARENA.width * 0.9,
+    );
+    glow.addColorStop(0, "rgba(255, 209, 108, 0.16)");
+    glow.addColorStop(1, "rgba(255, 209, 108, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+    ctx.restore();
   }
 
   function drawDefenderBall(defender) {
@@ -2110,28 +2138,24 @@
       return;
     }
 
-    const scorePreviewFactor = clamp(1 - (state.run.score * 0.006), 0.34, 1);
-    const previewX = lerp(player.x, target.x, scorePreviewFactor);
-    const previewY = lerp(player.y, target.y, scorePreviewFactor);
-
     ctx.save();
     ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(42, 200, 255, 0.75)";
-    ctx.shadowColor = "rgba(42, 200, 255, 0.65)";
-    ctx.shadowBlur = 8;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 208, 92, 0.9)";
+    ctx.shadowColor = "rgba(255, 197, 72, 0.72)";
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
-    ctx.lineTo(previewX, previewY);
+    ctx.lineTo(target.x, target.y);
     ctx.stroke();
 
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+    ctx.fillStyle = "rgba(255, 244, 201, 0.98)";
     ctx.beginPath();
     ctx.arc(target.x, target.y, 4.5, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = "rgba(42, 200, 255, 0.36)";
+    ctx.strokeStyle = "rgba(255, 208, 92, 0.42)";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(target.x, target.y, state.player.radius + 5, 0, Math.PI * 2);
