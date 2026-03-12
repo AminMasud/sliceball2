@@ -8,6 +8,9 @@
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
   const SLICE_TIMEOUT_SECONDS = 3;
+  const START_COUNTDOWN_SECONDS = 3.2;
+  const START_GO_WINDOW = 0.8;
+  const LOW_TIME_HEAT_THRESHOLD = 0.28;
   const OBSTACLE_UNLOCK_SLICES = 5;
   const SECOND_OBSTACLE_UNLOCK_SLICES = 30;
   const ARROW_UNLOCK_SLICES = 50;
@@ -233,6 +236,8 @@
       combo: 0,
       bestCombo: 0,
       slices: 0,
+      guideTime: 0,
+      countdownTime: 0,
       sliceTimer: SLICE_TIMEOUT_SECONDS,
       quickSliceChain: 0,
       lastSliceAt: 0,
@@ -670,6 +675,7 @@
     }
 
     dom.centerBanner.textContent = text;
+    dom.centerBanner.dataset.kind = kind;
     dom.centerBanner.classList.remove("hidden", "show");
 
     if (kind === "miss") {
@@ -1206,6 +1212,32 @@
     registerMiss();
   }
 
+  function triggerObstacleBounce(hitPoint = null) {
+    if (state.shot.hitObstacle || !state.shot.active) {
+      return;
+    }
+
+    const bounceTarget = clampToWallBounds({
+      x: state.shot.startX,
+      y: state.shot.startY,
+      wall: getWallAtPoint(state.shot.startX, state.shot.startY, state.player.radius),
+    }, state.player.radius);
+    const impact = hitPoint ?? { x: state.player.x, y: state.player.y };
+    const bounceDistance = distance(impact.x, impact.y, bounceTarget.x, bounceTarget.y);
+
+    state.shot.hitObstacle = true;
+    state.shot.startX = impact.x;
+    state.shot.startY = impact.y;
+    state.shot.endX = bounceTarget.x;
+    state.shot.endY = bounceTarget.y;
+    state.shot.elapsed = 0;
+    state.shot.duration = clamp(bounceDistance / (DASH_SPEED * 1.15), 0.08, DASH_MAX_DURATION);
+
+    emitSliceSparks(impact, "rgba(244, 186, 110, 0.95)", 16);
+    triggerFlash("rgba(255, 194, 120, 0.32)", 0.5, 0.1);
+    triggerShake(0.14, 5);
+  }
+
   function signedSide(point, lineA, lineB) {
     const normalX = -(lineB.y - lineA.y);
     const normalY = lineB.x - lineA.x;
@@ -1317,6 +1349,56 @@
     return null;
   }
 
+  function detectDefenderBallHit(previous, next, linePrevious, lineCurrent) {
+    const prevLine = linePrevious ?? lineCurrent ?? getDefenderSegmentSnapshot();
+    const currLine = lineCurrent ?? prevLine;
+    const defenders = [
+      {
+        prevX: prevLine.ax,
+        prevY: prevLine.ay,
+        x: currLine.ax,
+        y: currLine.ay,
+        radius: state.defenders[0].radius,
+      },
+      {
+        prevX: prevLine.bx,
+        prevY: prevLine.by,
+        x: currLine.bx,
+        y: currLine.by,
+        radius: state.defenders[1].radius,
+      },
+    ];
+
+    for (const defender of defenders) {
+      const hitDistance = defender.radius + state.player.radius;
+      const currentHit = distancePointToSegment(
+        defender.x,
+        defender.y,
+        previous.x,
+        previous.y,
+        next.x,
+        next.y,
+      ) <= hitDistance;
+      const previousHit = distancePointToSegment(
+        defender.prevX,
+        defender.prevY,
+        previous.x,
+        previous.y,
+        next.x,
+        next.y,
+      ) <= hitDistance;
+
+      if (currentHit || previousHit) {
+        return {
+          x: (next.x + defender.x) * 0.5,
+          y: (next.y + defender.y) * 0.5,
+        };
+      }
+    }
+
+    return null;
+  }
+
   function registerMiss() {
     state.run.combo = 0;
     state.run.quickSliceChain = 0;
@@ -1337,6 +1419,7 @@
     state.run.combo += 1;
     state.run.bestCombo = Math.max(state.run.bestCombo, state.run.combo);
     state.run.slices += 1;
+    state.run.guideTime = 0;
     const now = performance.now();
     if ((now - state.run.lastSliceAt) <= NINJA_CHAIN_WINDOW_MS) {
       state.run.quickSliceChain += 1;
@@ -1449,6 +1532,8 @@
     state.run.combo = 0;
     state.run.bestCombo = 0;
     state.run.slices = 0;
+    state.run.guideTime = 4.1;
+    state.run.countdownTime = START_COUNTDOWN_SECONDS;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     state.run.quickSliceChain = 0;
     state.run.lastSliceAt = 0;
@@ -1467,7 +1552,7 @@
     state.effects.shakeStrength = 0;
     state.effects.flashTime = 0;
     state.repositioning = false;
-    state.canShoot = true;
+    state.canShoot = false;
     state.shot.active = false;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
@@ -1494,6 +1579,7 @@
     state.shot.active = false;
     state.aim.active = false;
     state.canShoot = false;
+    state.run.countdownTime = 0;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     setOverlay("menu");
     updateCoinDisplays();
@@ -1517,6 +1603,7 @@
       return;
     }
 
+    state.run.guideTime = 0;
     state.aim.active = true;
     state.aim.x = pointerPoint.x;
     state.aim.y = pointerPoint.y;
@@ -1781,8 +1868,19 @@
       });
 
       if (obstacleHit) {
-        state.shot.hitObstacle = true;
-        emitSliceSparks({ x: state.player.x, y: state.player.y }, "rgba(211, 123, 123, 0.9)", 14);
+        triggerObstacleBounce({ x: state.player.x, y: state.player.y });
+      }
+    }
+
+    if (!state.shot.hitObstacle) {
+      const defenderHit = detectDefenderBallHit(
+        previous,
+        { x: state.player.x, y: state.player.y },
+        linePrevious,
+        lineCurrent,
+      );
+      if (defenderHit) {
+        triggerObstacleBounce(defenderHit);
       }
     }
 
@@ -1830,8 +1928,8 @@
       }
     }
 
-    if (state.shot.elapsed >= state.shot.duration || state.shot.hitObstacle) {
-      finalizeShot(!state.shot.sliced || state.shot.hitObstacle);
+    if (state.shot.elapsed >= state.shot.duration) {
+      finalizeShot(state.shot.hitObstacle || !state.shot.sliced);
     }
   }
 
@@ -1911,6 +2009,21 @@
       return;
     }
 
+    state.run.guideTime = Math.max(0, state.run.guideTime - dt);
+    if (state.run.countdownTime > 0) {
+      const previousCountdown = state.run.countdownTime;
+      state.run.countdownTime = Math.max(0, state.run.countdownTime - dt);
+
+      if (previousCountdown > START_GO_WINDOW && state.run.countdownTime <= START_GO_WINDOW) {
+        state.canShoot = true;
+      }
+
+      if (state.run.countdownTime > START_GO_WINDOW) {
+        updateParticles(dt);
+        return;
+      }
+    }
+
     state.run.sliceTimer = Math.max(0, state.run.sliceTimer - dt);
     updateSliceTimerDisplay();
     if (state.run.sliceTimer <= 0) {
@@ -1928,16 +2041,30 @@
     updateParticles(dt);
   }
 
-  function drawBackdrop() {
+  function drawBackdrop(timeMs) {
     const backdrop = ctx.createLinearGradient(0, 0, 0, ARENA.height);
-    backdrop.addColorStop(0, "#99511c");
-    backdrop.addColorStop(0.45, "#7b3c13");
-    backdrop.addColorStop(1, "#5d270b");
+    backdrop.addColorStop(0, "#fffefb");
+    backdrop.addColorStop(0.46, "#fff9f1");
+    backdrop.addColorStop(1, "#f5ebdb");
     ctx.fillStyle = backdrop;
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
 
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 208, 107, 0.08)";
+    const centerGlow = ctx.createRadialGradient(
+      ARENA.width * 0.5,
+      ARENA.height * 0.42,
+      18,
+      ARENA.width * 0.5,
+      ARENA.height * 0.42,
+      ARENA.width * 0.72,
+    );
+    centerGlow.addColorStop(0, "rgba(255, 255, 255, 0.62)");
+    centerGlow.addColorStop(0.55, "rgba(255, 255, 255, 0.22)");
+    centerGlow.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = centerGlow;
+    ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+    ctx.strokeStyle = "rgba(198, 164, 114, 0.08)";
     ctx.lineWidth = 2;
     for (let y = 28; y < ARENA.height; y += 36) {
       ctx.beginPath();
@@ -1946,18 +2073,60 @@
       ctx.stroke();
     }
 
-    const glow = ctx.createRadialGradient(
+    const vignette = ctx.createRadialGradient(
+      ARENA.width * 0.5,
+      ARENA.height * 0.48,
       ARENA.width * 0.28,
-      ARENA.height * 0.2,
-      8,
-      ARENA.width * 0.28,
-      ARENA.height * 0.2,
-      ARENA.width * 0.9,
+      ARENA.width * 0.5,
+      ARENA.height * 0.48,
+      ARENA.width * 0.82,
     );
-    glow.addColorStop(0, "rgba(255, 209, 108, 0.16)");
-    glow.addColorStop(1, "rgba(255, 209, 108, 0)");
-    ctx.fillStyle = glow;
+    vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+    vignette.addColorStop(1, "rgba(194, 161, 115, 0.22)");
+    ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+    const timerRatio = clamp(state.run.sliceTimer / SLICE_TIMEOUT_SECONDS, 0, 1);
+    const heatLevel = (
+      state.inRun &&
+      state.run.countdownTime <= START_GO_WINDOW
+    )
+      ? clamp((LOW_TIME_HEAT_THRESHOLD - timerRatio) / LOW_TIME_HEAT_THRESHOLD, 0, 1)
+      : 0;
+
+    if (heatLevel > 0) {
+      const shimmer = (Math.sin(timeMs * 0.014) + 1) * 0.5;
+      const heatGlow = ctx.createRadialGradient(
+        ARENA.width * 0.5,
+        ARENA.height * (0.72 - (shimmer * 0.12)),
+        18,
+        ARENA.width * 0.5,
+        ARENA.height * 0.52,
+        ARENA.width * 0.9,
+      );
+      heatGlow.addColorStop(0, `rgba(255, 154, 76, ${0.18 + (heatLevel * 0.24)})`);
+      heatGlow.addColorStop(0.55, `rgba(255, 108, 64, ${0.08 + (heatLevel * 0.16)})`);
+      heatGlow.addColorStop(1, "rgba(255, 108, 64, 0)");
+      ctx.fillStyle = heatGlow;
+      ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+      ctx.strokeStyle = `rgba(255, 122, 76, ${0.08 + (heatLevel * 0.12)})`;
+      ctx.lineWidth = 1.8;
+      for (let i = 0; i < 4; i += 1) {
+        const y = ARENA.height * (0.2 + (i * 0.18));
+        ctx.beginPath();
+        for (let x = 0; x <= ARENA.width; x += 10) {
+          const wave = Math.sin((x * 0.035) + (timeMs * 0.01) + (i * 0.9)) * (4 + (heatLevel * 5));
+          if (x === 0) {
+            ctx.moveTo(x, y + wave);
+          } else {
+            ctx.lineTo(x, y + wave);
+          }
+        }
+        ctx.stroke();
+      }
+    }
+
     ctx.restore();
   }
 
@@ -2160,6 +2329,140 @@
     ctx.beginPath();
     ctx.arc(target.x, target.y, state.player.radius + 5, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSlicePatternGuide(timeMs) {
+    if (
+      !state.inRun ||
+      state.run.guideTime <= 0 ||
+      state.run.slices > 0 ||
+      state.shot.active ||
+      state.aim.active
+    ) {
+      return;
+    }
+
+    const first = state.defenders[0];
+    const second = state.defenders[1];
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 0.0001) {
+      return;
+    }
+
+    const lineX = dx / length;
+    const lineY = dy / length;
+    const normalX = -lineY;
+    const normalY = lineX;
+    const guideDir = normalize(normalX + (lineX * 0.34), normalY + (lineY * 0.34));
+    const midX = (first.x + second.x) * 0.5;
+    const midY = (first.y + second.y) * 0.5;
+    const guideLength = 84;
+    const startX = midX - (guideDir.x * guideLength);
+    const startY = midY - (guideDir.y * guideLength);
+    const endX = midX + (guideDir.x * guideLength);
+    const endY = midY + (guideDir.y * guideLength);
+    const alpha = clamp(state.run.guideTime / 0.85, 0, 1);
+    const pulse = 0.7 + (((Math.sin(timeMs * 0.01) + 1) * 0.5) * 0.3);
+    const wingX = -guideDir.y;
+    const wingY = guideDir.x;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.setLineDash([12, 8]);
+    ctx.lineDashOffset = -(timeMs * 0.03);
+    ctx.strokeStyle = "rgba(255, 164, 48, 0.92)";
+    ctx.shadowColor = "rgba(255, 186, 86, 0.58)";
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+    ctx.beginPath();
+    ctx.arc(midX, midY, 7 + (pulse * 4), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(255, 174, 52, 0.98)";
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(
+      endX - (guideDir.x * 18) + (wingX * 10),
+      endY - (guideDir.y * 18) + (wingY * 10),
+    );
+    ctx.lineTo(
+      endX - (guideDir.x * 18) - (wingX * 10),
+      endY - (guideDir.y * 18) - (wingY * 10),
+    );
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(106, 45, 6, 0.94)";
+    ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText("Slice across the line", midX, midY - 26);
+    ctx.restore();
+  }
+
+  function drawStartCountdown(timeMs) {
+    if (!state.inRun || state.run.countdownTime <= 0) {
+      return;
+    }
+
+    const elapsed = START_COUNTDOWN_SECONDS - state.run.countdownTime;
+    const stage = clamp(Math.floor(elapsed / START_GO_WINDOW), 0, 3);
+    const labels = ["1", "2", "3", "GO"];
+    const localProgress = (elapsed - (stage * START_GO_WINDOW)) / START_GO_WINDOW;
+    const pulse = 0.92 + (Math.sin(localProgress * Math.PI) * 0.16);
+    const plateWidth = stage === 3 ? 176 : 134;
+    const plateHeight = 112;
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "rgba(121, 57, 18, 0.18)";
+    ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+
+    ctx.translate(ARENA.width * 0.5, ARENA.height * 0.5);
+    ctx.scale(pulse, pulse);
+    ctx.rotate(-0.04);
+
+    ctx.beginPath();
+    ctx.moveTo(-plateWidth * 0.48, -plateHeight * 0.24);
+    ctx.quadraticCurveTo(-plateWidth * 0.56, -plateHeight * 0.48, -plateWidth * 0.18, -plateHeight * 0.5);
+    ctx.lineTo(plateWidth * 0.26, -plateHeight * 0.54);
+    ctx.quadraticCurveTo(plateWidth * 0.55, -plateHeight * 0.46, plateWidth * 0.48, -plateHeight * 0.08);
+    ctx.lineTo(plateWidth * 0.52, plateHeight * 0.12);
+    ctx.quadraticCurveTo(plateWidth * 0.46, plateHeight * 0.52, 0, plateHeight * 0.48);
+    ctx.quadraticCurveTo(-plateWidth * 0.5, plateHeight * 0.52, -plateWidth * 0.54, plateHeight * 0.06);
+    ctx.closePath();
+    const plateGradient = ctx.createLinearGradient(0, -plateHeight * 0.5, 0, plateHeight * 0.5);
+    plateGradient.addColorStop(0, "rgba(255, 218, 111, 0.96)");
+    plateGradient.addColorStop(1, "rgba(255, 147, 26, 0.94)");
+    ctx.fillStyle = plateGradient;
+    ctx.strokeStyle = "rgba(255, 244, 191, 0.84)";
+    ctx.lineWidth = 4;
+    ctx.shadowColor = "rgba(95, 37, 9, 0.28)";
+    ctx.shadowBlur = 18;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(110, 43, 10, 0.94)";
+    ctx.textAlign = "center";
+    ctx.font = '900 17px "Trebuchet MS", sans-serif';
+    ctx.fillText(stage === 3 ? "GO!" : "READY", 0, -18);
+    ctx.font = stage === 3
+      ? '900 44px "Trebuchet MS", sans-serif'
+      : '900 54px "Trebuchet MS", sans-serif';
+    ctx.fillText(labels[stage], 0, 34);
     ctx.restore();
   }
 
@@ -2491,7 +2794,7 @@
       ctx.translate(offsetX, offsetY);
     }
 
-    drawBackdrop();
+    drawBackdrop(timeMs);
     drawEnergyLine(timeMs);
     drawDefenderBall(state.defenders[0]);
     drawDefenderBall(state.defenders[1]);
@@ -2500,6 +2803,8 @@
     drawDashTrail();
     drawAfterimages();
     drawPlayer();
+    drawSlicePatternGuide(timeMs);
+    drawStartCountdown(timeMs);
     drawAttachPulses();
     drawParticles();
     drawAimGuide();
