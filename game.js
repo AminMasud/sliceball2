@@ -8,8 +8,6 @@
 
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
   const SLICE_TIMEOUT_SECONDS = 3;
-  const START_COUNTDOWN_SECONDS = 3.2;
-  const START_GO_WINDOW = 0.8;
   const LOW_TIME_HEAT_THRESHOLD = 0.28;
   const OBSTACLE_UNLOCK_SLICES = 5;
   const SECOND_OBSTACLE_UNLOCK_SLICES = 30;
@@ -28,9 +26,9 @@
   const PLAYER_RADIUS = 14;
   const DEFENDER_RADIUS = 15;
   const DEFENDER_MIN_SEPARATION = DEFENDER_RADIUS * 7;
-  const DASH_MIN_DURATION = 0.15;
-  const DASH_MAX_DURATION = 0.25;
-  const DASH_SPEED = 2200;
+  const DASH_MIN_DURATION = 0.08;
+  const DASH_MAX_DURATION = 0.14;
+  const DASH_SPEED = 4000;
   const DASH_COOLDOWN = 0.15;
   const NINJA_CHAIN_WINDOW_MS = 1150;
   const NINJA_CHAIN_REQUIRED = 3;
@@ -237,7 +235,7 @@
       bestCombo: 0,
       slices: 0,
       guideTime: 0,
-      countdownTime: 0,
+      timerStarted: false,
       sliceTimer: SLICE_TIMEOUT_SECONDS,
       quickSliceChain: 0,
       lastSliceAt: 0,
@@ -1533,7 +1531,7 @@
     state.run.bestCombo = 0;
     state.run.slices = 0;
     state.run.guideTime = 4.1;
-    state.run.countdownTime = START_COUNTDOWN_SECONDS;
+    state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     state.run.quickSliceChain = 0;
     state.run.lastSliceAt = 0;
@@ -1552,7 +1550,7 @@
     state.effects.shakeStrength = 0;
     state.effects.flashTime = 0;
     state.repositioning = false;
-    state.canShoot = false;
+    state.canShoot = true;
     state.shot.active = false;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
@@ -1579,7 +1577,7 @@
     state.shot.active = false;
     state.aim.active = false;
     state.canShoot = false;
-    state.run.countdownTime = 0;
+    state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     setOverlay("menu");
     updateCoinDisplays();
@@ -1603,7 +1601,6 @@
       return;
     }
 
-    state.run.guideTime = 0;
     state.aim.active = true;
     state.aim.x = pointerPoint.x;
     state.aim.y = pointerPoint.y;
@@ -1625,6 +1622,8 @@
     const dashDistance = distance(state.player.x, state.player.y, target.x, target.y);
     const duration = clamp(dashDistance / DASH_SPEED, DASH_MIN_DURATION, DASH_MAX_DURATION);
 
+    state.run.guideTime = 0;
+    state.run.timerStarted = true;
     state.shot.active = true;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
@@ -1872,18 +1871,6 @@
       }
     }
 
-    if (!state.shot.hitObstacle) {
-      const defenderHit = detectDefenderBallHit(
-        previous,
-        { x: state.player.x, y: state.player.y },
-        linePrevious,
-        lineCurrent,
-      );
-      if (defenderHit) {
-        triggerObstacleBounce(defenderHit);
-      }
-    }
-
     if (!state.shot.hitObstacle && state.arrows.active) {
       const arrow = state.arrows.active;
       const dashSegmentEnd = { x: state.player.x, y: state.player.y };
@@ -1925,6 +1912,18 @@
       const sliceImpact = detectSliceDynamic(previous, state.player, linePrevious, lineCurrent);
       if (sliceImpact) {
         onSlice(sliceImpact);
+      }
+    }
+
+    if (!state.shot.sliced && !state.shot.hitObstacle) {
+      const defenderHit = detectDefenderBallHit(
+        previous,
+        { x: state.player.x, y: state.player.y },
+        linePrevious,
+        lineCurrent,
+      );
+      if (defenderHit) {
+        triggerObstacleBounce(defenderHit);
       }
     }
 
@@ -2009,19 +2008,13 @@
       return;
     }
 
-    state.run.guideTime = Math.max(0, state.run.guideTime - dt);
-    if (state.run.countdownTime > 0) {
-      const previousCountdown = state.run.countdownTime;
-      state.run.countdownTime = Math.max(0, state.run.countdownTime - dt);
+    if (state.run.timerStarted) {
+      state.run.guideTime = Math.max(0, state.run.guideTime - dt);
+    }
 
-      if (previousCountdown > START_GO_WINDOW && state.run.countdownTime <= START_GO_WINDOW) {
-        state.canShoot = true;
-      }
-
-      if (state.run.countdownTime > START_GO_WINDOW) {
-        updateParticles(dt);
-        return;
-      }
+    if (!state.run.timerStarted) {
+      updateParticles(dt);
+      return;
     }
 
     state.run.sliceTimer = Math.max(0, state.run.sliceTimer - dt);
@@ -2087,10 +2080,7 @@
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
 
     const timerRatio = clamp(state.run.sliceTimer / SLICE_TIMEOUT_SECONDS, 0, 1);
-    const heatLevel = (
-      state.inRun &&
-      state.run.countdownTime <= START_GO_WINDOW
-    )
+    const heatLevel = state.inRun && state.run.timerStarted
       ? clamp((LOW_TIME_HEAT_THRESHOLD - timerRatio) / LOW_TIME_HEAT_THRESHOLD, 0, 1)
       : 0;
 
@@ -2352,19 +2342,22 @@
       return;
     }
 
-    const lineX = dx / length;
-    const lineY = dy / length;
-    const normalX = -lineY;
-    const normalY = lineX;
-    const guideDir = normalize(normalX + (lineX * 0.34), normalY + (lineY * 0.34));
+    const player = state.player;
     const midX = (first.x + second.x) * 0.5;
     const midY = (first.y + second.y) * 0.5;
-    const guideLength = 84;
-    const startX = midX - (guideDir.x * guideLength);
-    const startY = midY - (guideDir.y * guideLength);
-    const endX = midX + (guideDir.x * guideLength);
-    const endY = midY + (guideDir.y * guideLength);
-    const alpha = clamp(state.run.guideTime / 0.85, 0, 1);
+    const guideDir = normalize(midX - player.x, midY - player.y);
+    if (guideDir.x === 0 && guideDir.y === 0) {
+      return;
+    }
+
+    const guideTarget = rayToWallTarget(
+      { x: player.x, y: player.y },
+      guideDir,
+      state.player.radius,
+    ) ?? { x: midX, y: midY };
+    const alpha = state.run.timerStarted
+      ? clamp(state.run.guideTime / 0.85, 0, 1)
+      : 1;
     const pulse = 0.7 + (((Math.sin(timeMs * 0.01) + 1) * 0.5) * 0.3);
     const wingX = -guideDir.y;
     const wingY = guideDir.x;
@@ -2380,11 +2373,16 @@
     ctx.shadowBlur = 10;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(guideTarget.x, guideTarget.y);
     ctx.stroke();
 
     ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255, 178, 56, 0.98)";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, state.player.radius + 4 + (pulse * 3), 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
     ctx.beginPath();
     ctx.arc(midX, midY, 7 + (pulse * 4), 0, Math.PI * 2);
@@ -2392,14 +2390,14 @@
 
     ctx.fillStyle = "rgba(255, 174, 52, 0.98)";
     ctx.beginPath();
-    ctx.moveTo(endX, endY);
+    ctx.moveTo(guideTarget.x, guideTarget.y);
     ctx.lineTo(
-      endX - (guideDir.x * 18) + (wingX * 10),
-      endY - (guideDir.y * 18) + (wingY * 10),
+      guideTarget.x - (guideDir.x * 18) + (wingX * 10),
+      guideTarget.y - (guideDir.y * 18) + (wingY * 10),
     );
     ctx.lineTo(
-      endX - (guideDir.x * 18) - (wingX * 10),
-      endY - (guideDir.y * 18) - (wingY * 10),
+      guideTarget.x - (guideDir.x * 18) - (wingX * 10),
+      guideTarget.y - (guideDir.y * 18) - (wingY * 10),
     );
     ctx.closePath();
     ctx.fill();
@@ -2408,61 +2406,7 @@
     ctx.fillStyle = "rgba(106, 45, 6, 0.94)";
     ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
     ctx.textAlign = "center";
-    ctx.fillText("Slice across the line", midX, midY - 26);
-    ctx.restore();
-  }
-
-  function drawStartCountdown(timeMs) {
-    if (!state.inRun || state.run.countdownTime <= 0) {
-      return;
-    }
-
-    const elapsed = START_COUNTDOWN_SECONDS - state.run.countdownTime;
-    const stage = clamp(Math.floor(elapsed / START_GO_WINDOW), 0, 3);
-    const labels = ["1", "2", "3", "GO"];
-    const localProgress = (elapsed - (stage * START_GO_WINDOW)) / START_GO_WINDOW;
-    const pulse = 0.92 + (Math.sin(localProgress * Math.PI) * 0.16);
-    const plateWidth = stage === 3 ? 176 : 134;
-    const plateHeight = 112;
-
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = "rgba(121, 57, 18, 0.18)";
-    ctx.fillRect(0, 0, ARENA.width, ARENA.height);
-
-    ctx.translate(ARENA.width * 0.5, ARENA.height * 0.5);
-    ctx.scale(pulse, pulse);
-    ctx.rotate(-0.04);
-
-    ctx.beginPath();
-    ctx.moveTo(-plateWidth * 0.48, -plateHeight * 0.24);
-    ctx.quadraticCurveTo(-plateWidth * 0.56, -plateHeight * 0.48, -plateWidth * 0.18, -plateHeight * 0.5);
-    ctx.lineTo(plateWidth * 0.26, -plateHeight * 0.54);
-    ctx.quadraticCurveTo(plateWidth * 0.55, -plateHeight * 0.46, plateWidth * 0.48, -plateHeight * 0.08);
-    ctx.lineTo(plateWidth * 0.52, plateHeight * 0.12);
-    ctx.quadraticCurveTo(plateWidth * 0.46, plateHeight * 0.52, 0, plateHeight * 0.48);
-    ctx.quadraticCurveTo(-plateWidth * 0.5, plateHeight * 0.52, -plateWidth * 0.54, plateHeight * 0.06);
-    ctx.closePath();
-    const plateGradient = ctx.createLinearGradient(0, -plateHeight * 0.5, 0, plateHeight * 0.5);
-    plateGradient.addColorStop(0, "rgba(255, 218, 111, 0.96)");
-    plateGradient.addColorStop(1, "rgba(255, 147, 26, 0.94)");
-    ctx.fillStyle = plateGradient;
-    ctx.strokeStyle = "rgba(255, 244, 191, 0.84)";
-    ctx.lineWidth = 4;
-    ctx.shadowColor = "rgba(95, 37, 9, 0.28)";
-    ctx.shadowBlur = 18;
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(110, 43, 10, 0.94)";
-    ctx.textAlign = "center";
-    ctx.font = '900 17px "Trebuchet MS", sans-serif';
-    ctx.fillText(stage === 3 ? "GO!" : "READY", 0, -18);
-    ctx.font = stage === 3
-      ? '900 44px "Trebuchet MS", sans-serif'
-      : '900 54px "Trebuchet MS", sans-serif';
-    ctx.fillText(labels[stage], 0, 34);
+    ctx.fillText("Slice through the line", midX, midY - 26);
     ctx.restore();
   }
 
@@ -2804,7 +2748,6 @@
     drawAfterimages();
     drawPlayer();
     drawSlicePatternGuide(timeMs);
-    drawStartCountdown(timeMs);
     drawAttachPulses();
     drawParticles();
     drawAimGuide();

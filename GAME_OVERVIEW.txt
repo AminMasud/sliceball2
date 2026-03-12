@@ -2,192 +2,170 @@ LINE SLICE BALLS
 GAME OVERVIEW (CURRENT BUILD)
 
 1) PROJECT SUMMARY
-- Platform: Web (single page, Canvas 2D)
+- Platform: Web, mobile-first portrait layout
 - Stack: HTML + CSS + JavaScript
+- Renderer: Canvas 2D
 - Runtime entry: game.js loaded by index.html
 - Mode: Endless single-player arcade
 
 
 2) CORE GAME LOOP
-1. Attacker is attached to a wall.
-2. Player swipes from anywhere to aim a dash.
-3. Game computes wall landing target from swipe direction.
-4. Attacker performs a fast wall-to-wall dash.
-5. If dash path hits defender line, it counts as a slice.
-6. Score/combo/coins/timer update.
-7. Defenders and hazards keep moving.
-8. Loop continues until slice timer reaches 0.
+1. Attacker starts attached to a wall.
+2. Opening tutorial line shows the intended slice path from the attacker.
+3. Survival timer does not start until the player's first real dash.
+4. Player swipes to choose a wall-to-wall dash path.
+5. If dash path intersects the moving defender line, it counts as a slice.
+6. Score, combo, coins, and timer update.
+7. Defenders and hazards continue moving.
+8. Run ends when timer reaches 0.
 
 
 3) MOVEMENT MODEL
 - Attacker:
-  - Wall-attached while idle (top/bottom/left/right).
-  - No free rolling in arena.
-  - Dash duration is short (~0.15 to 0.25 sec).
-  - Post-dash attach pulse on impact.
+  - Wall-attached while idle.
+  - No free movement inside the arena.
+  - Very fast dash travel.
+  - Dash duration is short (~0.08 to 0.14 sec).
+  - Post-dash attach pulse on wall impact.
 - Dash cooldown:
-  - 0.15 sec safety cooldown.
+  - 0.15 sec safety cooldown between dashes.
+- Dash target:
+  - Always resolves to a wall landing point based on swipe direction.
 
 
-4) INPUT / AIM
-- Touch/swipe can start from anywhere in arena.
+4) INPUT / AIM / TUTORIAL
+- Touch or swipe can begin from anywhere in the arena.
 - Aim preview shows:
-  - glowing projected path
+  - full projected dash path
   - wall landing marker
-- Aim preview line shortens as score gets higher.
+- Opening tutorial guide:
+  - starts from the attacker
+  - points through the defender line toward a valid slice path
+  - stays visible until the first actual launch
 
 
 5) SLICE DETECTION
-- Slice is hit-based:
-  - If dash segment intersects defender segment, it is a slice.
-  - No side-cross requirement.
-- Dynamic detection is used while defenders move.
+- Slice is path-based:
+  - If the dash segment intersects the defender segment, it is a slice.
+  - Dynamic detection is used while defenders move.
+- Valid slice takes priority over defender-ball bounce:
+  - if the dash angle would pass through the line and slice it, the slice is awarded
+  - defender-ball bounce only triggers when the dash does not already qualify as a slice
 - Slice reward:
   - +1 score
   - +1 coin
   - combo increment
+  - timer reset to 3.0 seconds
 
 
 6) DEFENDERS / LINE
-- Two defender balls move continuously across the full arena.
-- Defender balls have a hard minimum separation:
-  - They cannot move closer than the configured minimum distance.
-  - Separation is enforced at spawn, retargeting, and live updates.
+- Two defender balls move continuously through the arena.
+- Defender balls enforce a minimum separation distance.
 - Defender line visuals:
-  - Straight by default.
-  - Zigzag/vibration only during slice-hit reaction.
+  - straight by default
+  - vibrates / flashes on successful slice
+- Defender-ball contact:
+  - can bounce the attacker back to the launch wall if no valid slice occurred
 
 
-7) SURVIVAL TIMER / COMBO / COINS
-- Hearts removed.
+7) TIMER / COMBO / COINS
+- No heart system.
 - Survival rule:
   - player must land at least 1 slice every 3.0 seconds
+  - timer starts only after the first dash
   - timer reaching 0 immediately triggers game over
+- Low-time feedback:
+  - map visually heats up when close to timeout
 - Miss:
-  - no slice point is awarded
+  - no point is awarded
   - combo resets to 0
   - MISS banner + red flash
-- Hazard hit rule:
-  - spike or arrow hit invalidates that dash
-  - slice does not count even if line contact happened in same dash
-  - MISS is shown
 - Coins:
   - 1 coin per slice
   - persisted in localStorage
 - Record:
   - best score is saved in localStorage
-  - updates automatically when a run beats previous best
   - shown in menu and game-over screen
 
 
-8) ATTACKER SKINS (COSMETIC)
-- Character style:
-  - all attacker skins keep the same round ball silhouette
-  - faceless core (no eyes or mouth)
+8) HAZARDS
+- Spikes:
+  - 1st spike unlocks at 5 slices
+  - 2nd spike unlocks at 30 slices
+  - spikes move across the arena
+  - hitting a spike bounces attacker back and invalidates the dash
+- Arrows:
+  - unlock at 50 slices
+  - warning lane appears before spawn
+  - arrow hit counts as a miss
+
+
+9) BOUNCE RULES
+- Spike contact:
+  - attacker rebounds back toward the launch wall
+  - dash does not count as a slice
+- Defender-ball contact:
+  - attacker rebounds back only if no valid line slice occurred first
+- Arrow contact:
+  - no rebound logic, hit counts as a miss
+
+
+10) ATTACKER SKINS (COSMETIC)
+- Character silhouette:
+  - round attacker ball
   - thick outline + glow aura
-- Skin data model per character:
-  - id, name, theme, colorPrimary, colorGlow, particleStyle, unlockCost
-- Current skin roster:
-  - Neon Ninja (Energy): default unlocked
+- Skin roster:
+  - Neon Ninja: default unlocked
   - Fire Ninja: 150 coins
   - Water Ninja: 150 coins
   - Lightning Ninja: 250 coins
   - Earth Ninja: 250 coins
   - Blossom Ninja: 300 coins
-- Skin effects are cosmetic only (no gameplay stat changes).
+- Skin effects are cosmetic only.
 
 
-9) DASH VFX BY SKIN
-- Dash trail + particles switch by selected skin.
-- Meteor layer is always applied during dash:
-  - hot comet tail with bright core
-  - ember sparks while traveling
-  - small meteor impact burst on wall attach
-- Style examples:
-  - Fire: ember-like particles and hot streak color
-  - Water: droplet particles and cool ripple-like trail
-  - Lightning: spark particles and jagged streak
-  - Earth: dust/shard particles and rugged streak
-  - Blossom: petal-like particles and soft streak
-- Particle performance rules:
-  - max 20 dash particles per dash
-  - dash particles fade in <= 0.6 sec
-
-
-10) OBSTACLES (SPIKES)
-- 1st spike unlocks at 5 slices.
-- 2nd spike unlocks at 30 slices.
-- Spikes move across full arena.
-- Spike speed behavior:
-  - Starts faster than before.
-  - Smoothly accelerates as slices increase (difficulty advance).
-  - Has a top-speed cap to keep control and performance stable.
-- Spike spacing rule:
-  - Spikes stay apart using a minimum separation constraint
-  - Minimum is at least 4x spike size intent (implemented as strict distance floor).
-- Hitting spike counts as miss.
-
-
-11) HAZARD (FLYING ARROWS)
-- Arrows unlock at 50 slices.
-- Arrows spawn periodically.
-- Before each arrow appears, a warning path line blinks.
-- Arrow then flies fast across the warned path.
-- Arrow hit counts as a miss (no point, combo reset).
-
-
-12) SPECIAL EVENTS
-- NINJA SKILLS trigger:
-  - Triggered by fast consecutive slices in a short window.
-  - Effects:
-    - stronger shake
-    - whole-screen vibration effect
-    - NINJA SKILLS banner
-
-
-13) VISUAL FEEDBACK
+11) VISUAL FEEDBACK
 - Dash:
   - themed trail segments
   - themed particles
-  - meteor-style comet tail and landing flare
+  - meteor-style movement flare
   - afterimages
-- Combo scaling:
-  - higher combo increases line/trail/glow intensity
-  - intensity returns to normal when combo resets
 - Slice:
   - spark burst
-  - line flash/vibration
+  - line flash / vibration
+  - warped pop-up banner
   - screen flash + optional shake
-- Arrows:
-  - blinking warning lane before spawn
-  - bright flying arrow body/trail
 - Arena:
-  - clean plain map color
+  - bright near-white playable map interior
+  - warm framed outer shell
+  - low-time heat shimmer effect
+- Tutorial:
+  - animated slice-path guide from attacker to the line
 
 
-14) UI / OVERLAYS
+12) UI / OVERLAYS
 - HUD:
-  - top-left 3s slice timer bar
-  - top-center combo
-  - top-right score
+  - timer bar
+  - combo
+  - score
 - Overlays:
-  - Main menu (Play / Shop / Options)
-  - Shop (buy + select skins)
-  - Options (screen shake toggle)
-  - Game over (final score / best combo / coins earned / record)
+  - Main menu
+  - Shop
+  - Options
+  - Game over
 
 
-15) FILE MAP (ACTIVE)
+13) FILE MAP (ACTIVE)
 - index.html
-  - canvas + endless HUD + overlays
+  - canvas, HUD, overlays
 - styles.css
-  - visual theme + animations
+  - mobile UI theme, warped banner styling, overlay visuals
 - game.js
-  - active gameplay logic and rendering
+  - gameplay logic, rendering, collisions, hazards, tutorial guide
 - src/
-  - legacy files from prior architecture (not active runtime path)
+  - legacy files, not active runtime path
 
 
-16) RUN
-- Open index.html in browser.
+14) RUN
+- Open index.html in a browser.
 - No backend required.
