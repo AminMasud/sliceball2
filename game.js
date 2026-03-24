@@ -868,6 +868,38 @@
     }
   }
 
+  function emitCoreCollapseBurst(fx) {
+    const burstCenter = { x: state.core.x, y: state.core.y };
+    const burstRadius = Math.max(18, fx.toRadius * 0.9);
+    state.attachPulses.push({
+      x: burstCenter.x,
+      y: burstCenter.y,
+      life: 0.24,
+      maxLife: 0.24,
+      radius: burstRadius * 0.3,
+      maxRadius: burstRadius * 1.55,
+      color: "rgba(255, 236, 187, 0.86)",
+    });
+    emitSliceSparks(burstCenter, "rgba(255, 248, 228, 0.98)", 10);
+    emitSliceSparks(burstCenter, "rgba(255, 182, 106, 0.9)", 8);
+
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (Math.PI * 2 * i) / 8 + random(-0.2, 0.2);
+      const speed = random(90, 180);
+      spawnParticle({
+        x: burstCenter.x,
+        y: burstCenter.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: random(0.18, 0.28),
+        maxLife: 0.28,
+        size: random(2.2, 4.2),
+        color: i % 2 === 0 ? "rgba(255, 232, 178, 0.94)" : "rgba(255, 156, 92, 0.9)",
+        drag: 0.92,
+      });
+    }
+  }
+
   function createDashParticle(skin) {
     const player = state.player;
     const move = normalize(player.vx, player.vy);
@@ -1885,8 +1917,10 @@
     state.core.pulse = Math.max(0, state.core.pulse - (dt * 3.6));
     state.core.flash = Math.max(0, state.core.flash - (dt * 4.6));
     if (state.core.sliceFx) {
-      state.core.sliceFx.time += dt;
-      if (state.core.sliceFx.time >= state.core.sliceFx.duration) {
+      const sliceFx = state.core.sliceFx;
+      sliceFx.time += dt;
+      if (sliceFx.time >= sliceFx.duration) {
+        emitCoreCollapseBurst(sliceFx);
         state.core.sliceFx = null;
       }
     }
@@ -2144,12 +2178,16 @@
     const dir = normalize(fx.dirX, fx.dirY);
     const cutDir = (dir.x === 0 && dir.y === 0) ? { x: 1, y: 0 } : dir;
     const normal = { x: -cutDir.y, y: cutDir.x };
-    const splitOffset = 10 + (fx.fromRadius * 0.34 * eased);
-    const halfAlpha = clamp(1 - (progress * 1.15), 0, 1);
-    const revealStart = fx.respawns ? (CORE_RESPAWN_DELAY / fx.duration) : 0;
+    const revealStart = fx.respawns ? (CORE_RESPAWN_DELAY / fx.duration) : 0.04;
     const revealProgress = clamp((progress - revealStart) / Math.max(0.0001, 1 - revealStart), 0, 1);
-    const revealScale = fx.respawns ? easeOutCubic(revealProgress) : 1;
-    const newCoreAlpha = fx.respawns ? revealProgress : 1;
+    const revealEase = easeOutCubic(revealProgress);
+    const revealScale = lerp(fx.respawns ? 0.16 : 0.72, 1, revealEase);
+    const newCoreAlpha = fx.respawns ? revealProgress : lerp(0.38, 1, revealEase);
+    const collapseProgress = clamp((progress - 0.18) / 0.82, 0, 1);
+    const shellScale = lerp(1, 0.18, collapseProgress ** 2);
+    const halfRadius = Math.max(8, fx.fromRadius * shellScale);
+    const splitOffset = 12 + (fx.fromRadius * 0.24 * eased) + ((1 - shellScale) * fx.fromRadius * 0.08);
+    const halfAlpha = clamp(1 - (progress * 0.96), 0, 1);
 
     if (newCoreAlpha > 0.001) {
       drawCoreOrb(
@@ -2177,23 +2215,23 @@
       drawCoreOrb(
         state.core.x + (normal.x * splitOffset * sign),
         state.core.y + (normal.y * splitOffset * sign),
-        fx.fromRadius,
+        halfRadius,
         {
           alpha: halfAlpha,
           pulse: 0,
           flash: 0,
-          wobble: Math.sin(timeMs * 0.007) * 1.1,
+          wobble: Math.sin(timeMs * 0.007) * 0.8 * shellScale,
         },
       );
       ctx.restore();
     }
 
     ctx.save();
-    ctx.globalAlpha = clamp(0.12 + ((1 - progress) * 0.88), 0, 1);
+    ctx.globalAlpha = clamp(0.18 + ((1 - progress) * 0.82), 0, 1);
     ctx.strokeStyle = "rgba(255, 248, 223, 0.95)";
     ctx.shadowColor = "rgba(255, 241, 196, 0.88)";
-    ctx.shadowBlur = 14;
-    ctx.lineWidth = 3.2;
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = Math.max(2.8, fx.fromRadius * 0.07 * (1 - (progress * 0.2)));
     ctx.beginPath();
     ctx.moveTo(
       fx.impactX - (cutDir.x * fx.fromRadius * 1.35),
