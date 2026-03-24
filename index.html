@@ -4,120 +4,229 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Sliceball 2 - Endless</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:FILL@1" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <header class="top-shell">
+    <button id="hudMenuButton" class="icon-chip" type="button" aria-label="Open menu">
+      <span class="material-symbols-outlined">menu</span>
+    </button>
+    <h1 class="brand-mark">SliceBall</h1>
+    <div class="wallet-pill">
+      <span class="material-symbols-outlined wallet-icon">monetization_on</span>
+      <span id="topCoinText">0</span>
+    </div>
+  </header>
+
   <main class="app-shell">
     <section class="game-card">
-      <header class="game-header">
-        <div class="title-block">
-          <p class="eyebrow gameplay-eyebrow">Jungle Arcade</p>
-          <h1 class="game-title">Sliceball 2</h1>
-          <p class="game-subtitle">Swipe wall to wall, split the moving target balls, and survive the timer.</p>
+      <section class="score-hero">
+        <p class="hero-label">Total Points</p>
+        <p class="hero-score" id="scoreValue">0</p>
+        <div class="combo-chip">
+          <span class="combo-chip-label">Multiplier</span>
+          <p class="combo-value" id="comboValue">0x</p>
         </div>
-        <div class="score-strip">
-          <div class="hud-block combo-block">
-            <p class="hud-label">Combo</p>
-            <p class="combo-value" id="comboValue">0x</p>
-          </div>
-          <div class="hud-block coins-block">
-            <p class="hud-label">Score</p>
-            <p class="coins-value" id="scoreValue">0</p>
-          </div>
-        </div>
-      </header>
+      </section>
 
-      <div class="hud-block timer-block">
-        <p class="hud-label">Target Time</p>
+      <section class="timer-block">
+        <div class="timer-head">
+          <p id="timeValue" class="time-value">3.0s</p>
+          <p class="timer-caption">Time Remaining</p>
+        </div>
         <div class="time-bar">
           <div id="timeBarFill" class="time-bar-fill"></div>
         </div>
-        <p id="timeValue" class="time-value">3.0s</p>
-      </div>
+      </section>
 
-      <div class="arena-panel">
+      <section class="arena-panel">
         <div class="arena-shell">
           <canvas id="gameCanvas" width="420" height="420" aria-label="Sliceball 2 Endless Mode"></canvas>
           <div id="screenFlash" class="screen-flash"></div>
           <div id="centerBanner" class="center-banner hidden">MISS</div>
         </div>
-        <p class="arena-caption">Dash through the moving targets before the timer expires, then deal with spikes and temporary walls as the wave multiplies.</p>
-      </div>
+      </section>
 
-      <div class="hud-block tip-block">
-        <p class="hud-label">Flow</p>
-        <p class="tip-copy">Use the walls to line up clean hits. Reposition first when needed, because later runs add spikes and temporary wall lanes.</p>
-      </div>
+      <section class="stats-row">
+        <article class="stat-pod">
+          <span class="stat-kicker">Best Streak</span>
+          <strong id="bestStreakValue">0 Hits</strong>
+        </article>
+        <article class="stat-pod">
+          <span class="stat-kicker">Energy Level</span>
+          <div id="energyDots" class="energy-dots">
+            <span class="energy-dot"></span>
+            <span class="energy-dot"></span>
+            <span class="energy-dot"></span>
+            <span class="energy-dot"></span>
+          </div>
+        </article>
+      </section>
     </section>
   </main>
 
-  <div class="overlay" id="menuOverlay">
-    <div class="overlay-card menu-card">
-      <p class="eyebrow">Arcade Endless</p>
-      <h1>Sliceball 2</h1>
-      <p class="overlay-copy">Slice the moving target balls every 3 seconds, grow your combo, and survive split waves, spikes, and temporary walls.</p>
-      <p class="wallet-text" id="menuWalletText">Coins: 0</p>
-      <p class="wallet-text" id="menuRecordText">Record: 0</p>
-      <div class="overlay-buttons">
-        <button id="playButton" type="button">Play</button>
-        <button id="shopButton" type="button">Shop</button>
-        <button id="optionsButton" type="button">Options</button>
+  <nav class="bottom-nav" aria-hidden="true">
+    <div class="nav-item nav-item-active">
+      <span class="material-symbols-outlined">sports_esports</span>
+      <span>Play</span>
+    </div>
+    <div class="nav-item">
+      <span class="material-symbols-outlined">shopping_bag</span>
+      <span>Shop</span>
+    </div>
+    <div class="nav-item">
+      <span class="material-symbols-outlined">leaderboard</span>
+      <span>Rank</span>
+    </div>
+    <div class="nav-item">
+      <span class="material-symbols-outlined">settings</span>
+      <span>Settings</span>
+    </div>
+  </nav>
+
+  <div class="overlay menu-overlay" id="menuOverlay">
+    <div class="overlay-screen menu-screen">
+      <section class="menu-record-card">
+        <p class="overlay-kicker">Best Score</p>
+        <strong id="menuRecordText">0</strong>
+        <div class="menu-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </section>
+
+      <button id="playButton" class="play-cta" type="button">
+        <span class="material-symbols-outlined">play_arrow</span>
+        <span>Play</span>
+      </button>
+
+      <div class="menu-actions">
+        <button id="shopButton" class="soft-action" type="button">
+          <span class="material-symbols-outlined">shopping_bag</span>
+          <span>Shop</span>
+        </button>
+        <button id="optionsButton" class="soft-action" type="button">
+          <span class="material-symbols-outlined">tune</span>
+          <span>Options</span>
+        </button>
       </div>
+
+      <section class="reward-card">
+        <div class="reward-icon">
+          <span class="material-symbols-outlined">card_giftcard</span>
+        </div>
+        <div class="reward-copy">
+          <span class="overlay-kicker">Daily Reward</span>
+          <strong>Collect 50 Coins</strong>
+        </div>
+        <span class="material-symbols-outlined reward-arrow">chevron_right</span>
+      </section>
+
+      <p class="menu-wallet">Coins <span id="menuWalletText">0</span></p>
     </div>
   </div>
 
-  <div class="overlay hidden" id="shopOverlay">
-    <div class="overlay-card shop-card">
-      <p class="eyebrow">Cosmetics</p>
-      <h2>Attacker Shop</h2>
-      <p class="wallet-text" id="shopWalletText">Coins: 0</p>
+  <div class="overlay hidden shop-overlay" id="shopOverlay">
+    <div class="overlay-screen shop-screen">
+      <section class="shop-hero">
+        <div class="shop-hero-copy">
+          <p class="overlay-kicker">New Arrivals</p>
+          <h2>Jungle Neon Collection</h2>
+        </div>
+        <div id="shopWalletText" class="shop-wallet">Coins: 0</div>
+      </section>
+
+      <div class="shop-tabs" aria-hidden="true">
+        <span class="shop-tab active">Skins</span>
+        <span class="shop-tab">Trails</span>
+        <span class="shop-tab">Effects</span>
+      </div>
+
       <div id="shopItems" class="shop-items"></div>
+
       <div class="overlay-buttons">
         <button id="shopBackButton" type="button">Back</button>
       </div>
     </div>
   </div>
 
-  <div class="overlay hidden" id="optionsOverlay">
-    <div class="overlay-card options-card">
-      <p class="eyebrow">Game Feel</p>
-      <h2>Options</h2>
-      <div class="option-row">
-        <span>Screen Shake</span>
-        <button id="shakeToggleButton" type="button">On</button>
+  <div class="overlay hidden options-overlay" id="optionsOverlay">
+    <div class="overlay-screen options-screen">
+      <section class="options-head">
+        <p class="overlay-kicker">Customize Your Arena Experience</p>
+        <h2>Settings</h2>
+      </section>
+
+      <div class="options-wood-panel">
+        <div class="option-row">
+          <span class="option-icon material-symbols-outlined">vibration</span>
+          <div class="option-copy">
+            <strong>Screen Shake</strong>
+            <span>Tactile kinetic feedback</span>
+          </div>
+          <button id="shakeToggleButton" type="button">On</button>
+        </div>
       </div>
+
+      <section class="options-grid">
+        <article class="pref-card pref-card-active">
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <strong>High Quality</strong>
+          <span class="pref-bar"><span></span></span>
+        </article>
+        <article class="pref-card">
+          <span class="material-symbols-outlined">battery_saver</span>
+          <strong>Battery Save</strong>
+          <span class="pref-bar"><span class="pref-bar-empty"></span></span>
+        </article>
+      </section>
+
       <div class="overlay-buttons">
         <button id="optionsBackButton" type="button">Back</button>
       </div>
     </div>
   </div>
 
-  <div class="overlay hidden" id="gameOverOverlay">
-    <div class="overlay-card game-over-card">
-      <p class="eyebrow">Game Over</p>
-      <h2>Run Ended</h2>
+  <div class="overlay hidden gameover-overlay" id="gameOverOverlay">
+    <div class="overlay-screen gameover-screen">
+      <p id="recordBadge" class="record-badge hidden">New Record</p>
+      <h2 class="gameover-title">Game Over</h2>
+
+      <section class="final-score-card">
+        <span class="overlay-kicker">Final Score</span>
+        <strong id="finalScore">0</strong>
+      </section>
+
       <div class="stats-grid">
-        <div class="stat-cell">
-          <span>Final Score</span>
-          <strong id="finalScore">0</strong>
-        </div>
-        <div class="stat-cell">
-          <span>Best Combo</span>
-          <strong id="bestCombo">0x</strong>
-        </div>
-        <div class="stat-cell">
-          <span>Coins Earned</span>
-          <strong id="coinsEarned">0</strong>
-        </div>
-        <div class="stat-cell">
-          <span>Record</span>
-          <strong id="recordScore">0</strong>
-        </div>
+        <article class="stat-cell">
+          <span class="material-symbols-outlined">bolt</span>
+          <div>
+            <p>Best Combo</p>
+            <strong id="bestCombo">0x</strong>
+          </div>
+        </article>
+        <article class="stat-cell">
+          <span class="material-symbols-outlined">monetization_on</span>
+          <div>
+            <p>Earned</p>
+            <strong id="coinsEarned">0</strong>
+          </div>
+        </article>
       </div>
-      <div class="overlay-buttons">
-        <button id="restartButton" type="button">Restart</button>
-        <button id="gameOverShopButton" type="button">Shop</button>
-        <button id="mainMenuButton" type="button">Main Menu</button>
+
+      <p class="record-line">Record <strong id="recordScore">0</strong></p>
+
+      <div class="overlay-buttons gameover-actions">
+        <button id="restartButton" class="restart-button" type="button">Restart</button>
+        <div class="gameover-secondary">
+          <button id="gameOverShopButton" type="button">Shop</button>
+          <button id="mainMenuButton" type="button">Main Menu</button>
+        </div>
       </div>
     </div>
   </div>

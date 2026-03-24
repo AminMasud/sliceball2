@@ -156,6 +156,9 @@
     scoreValue: document.getElementById("scoreValue"),
     timeBarFill: document.getElementById("timeBarFill"),
     timeValue: document.getElementById("timeValue"),
+    topCoinText: document.getElementById("topCoinText"),
+    bestStreakValue: document.getElementById("bestStreakValue"),
+    energyDots: document.getElementById("energyDots"),
     screenFlash: document.getElementById("screenFlash"),
     centerBanner: document.getElementById("centerBanner"),
     menuOverlay: document.getElementById("menuOverlay"),
@@ -170,9 +173,11 @@
     bestCombo: document.getElementById("bestCombo"),
     coinsEarned: document.getElementById("coinsEarned"),
     recordScore: document.getElementById("recordScore"),
+    recordBadge: document.getElementById("recordBadge"),
     playButton: document.getElementById("playButton"),
     shopButton: document.getElementById("shopButton"),
     optionsButton: document.getElementById("optionsButton"),
+    hudMenuButton: document.getElementById("hudMenuButton"),
     shopBackButton: document.getElementById("shopBackButton"),
     shakeToggleButton: document.getElementById("shakeToggleButton"),
     optionsBackButton: document.getElementById("optionsBackButton"),
@@ -720,15 +725,47 @@
 
   function updateCoinDisplays() {
     dom.scoreValue.textContent = String(state.run.score);
-    dom.menuWalletText.textContent = `Coins: ${state.profile.coins}`;
+    if (dom.topCoinText) {
+      dom.topCoinText.textContent = String(state.profile.coins);
+    }
+    dom.menuWalletText.textContent = String(state.profile.coins);
     dom.shopWalletText.textContent = `Coins: ${state.profile.coins}`;
     const bestScore = Math.max(0, Math.floor(state.profile.records?.bestScore ?? 0));
     if (dom.menuRecordText) {
-      dom.menuRecordText.textContent = `Record: ${bestScore}`;
+      dom.menuRecordText.textContent = String(bestScore);
     }
     if (dom.recordScore && state.overlay !== "gameover") {
       dom.recordScore.textContent = String(bestScore);
     }
+  }
+
+  function updateBestStreakDisplay() {
+    if (!dom.bestStreakValue) {
+      return;
+    }
+
+    const streak = Math.max(state.run.bestCombo, 0);
+    dom.bestStreakValue.textContent = `${streak} Hit${streak === 1 ? "" : "s"}`;
+  }
+
+  function updateEnergyDots() {
+    if (!dom.energyDots) {
+      return;
+    }
+
+    const dots = Array.from(dom.energyDots.querySelectorAll(".energy-dot"));
+    if (dots.length === 0) {
+      return;
+    }
+
+    const ratio = state.run.timerStarted
+      ? clamp(state.run.sliceTimer / SLICE_TIMEOUT_SECONDS, 0, 1)
+      : 1;
+    const activeDots = Math.max(1, Math.ceil(ratio * dots.length));
+
+    dots.forEach((dot, index) => {
+      dot.classList.toggle("is-on", index < activeDots);
+    });
   }
 
   function updateComboDisplay(bump = false) {
@@ -750,6 +787,8 @@
       void dom.comboValue.offsetWidth;
       dom.comboValue.classList.add("bump");
     }
+
+    updateBestStreakDisplay();
   }
 
   function updateSliceTimerDisplay() {
@@ -768,6 +807,7 @@
     }
 
     dom.timeValue.textContent = `${state.run.sliceTimer.toFixed(1)}s`;
+    updateEnergyDots();
   }
 
   function updateShakeToggle() {
@@ -1310,14 +1350,9 @@
   }
 
   function updateTargets(dt) {
-    const freezeTargets = state.targetFx.some((fx) => fx.type === "split");
-
     state.targets.forEach((target) => {
       target.prevX = target.x;
       target.prevY = target.y;
-      if (freezeTargets) {
-        return;
-      }
 
       if (Math.hypot(target.vx, target.vy) < 0.0001) {
         retuneTargetVelocity(target, true);
@@ -1338,10 +1373,6 @@
         target.y = clamp(target.y, target.radius, ARENA.height - target.radius);
       }
     });
-
-    if (freezeTargets) {
-      return;
-    }
 
     for (let i = 0; i < state.targets.length; i += 1) {
       for (let j = i + 1; j < state.targets.length; j += 1) {
@@ -1923,6 +1954,9 @@
     if (dom.recordScore) {
       dom.recordScore.textContent = String(recordScore);
     }
+    if (dom.recordBadge) {
+      dom.recordBadge.classList.toggle("hidden", !isNewRecord);
+    }
 
     setOverlay("gameover");
     updateCoinDisplays();
@@ -2000,6 +2034,9 @@
     state.shot.cooldown = 0;
     state.shot.dashParticlesEmitted = 0;
     state.aim.active = false;
+    if (dom.recordBadge) {
+      dom.recordBadge.classList.add("hidden");
+    }
     updateDifficulty();
     spawnFreshWaveTarget(false);
     resetPlayerToStartWall();
@@ -2024,6 +2061,9 @@
     state.canShoot = false;
     state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
+    if (dom.recordBadge) {
+      dom.recordBadge.classList.add("hidden");
+    }
     setOverlay("menu");
     updateCoinDisplays();
     updateSliceTimerDisplay();
@@ -3318,6 +3358,12 @@
   dom.playButton.addEventListener("click", () => {
     startRun();
   });
+
+  if (dom.hudMenuButton) {
+    dom.hudMenuButton.addEventListener("click", () => {
+      showMenu();
+    });
+  }
 
   dom.shopButton.addEventListener("click", () => {
     beginShop("menu");
