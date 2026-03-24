@@ -1,179 +1,373 @@
 SLICEBALL 2
-GAME OVERVIEW (CURRENT BUILD)
+REBUILD SPEC FOR ANOTHER AI
 
-1) PROJECT SUMMARY
-- Platform: Web, mobile-first portrait layout
-- Stack: HTML + CSS + JavaScript
-- Renderer: Canvas 2D
-- Runtime entry: `game.js` loaded by `index.html`
-- Mode: Endless single-player arcade
+Purpose:
+- This is a rebuild document, not promo copy.
+- Another engineer or AI should be able to recreate the current playable game from this file without reverse-engineering every behavior from source.
+- If code and this file disagree, rebuild the behavior described here.
 
 
-2) CORE GAME LOOP
-1. Attacker starts attached to a wall.
-2. Opening tutorial guide shows a valid path from the attacker to the center core.
-3. Survival timer does not start until the player's first real dash.
-4. Player swipes to choose a wall-to-wall dash path.
-5. If the dash reaches the center core before another collision resolves first, it counts as a successful hit.
-6. Score, combo, coins, timer, and core radius update.
-7. Hazards continue moving and the target keeps shrinking.
-8. Run ends when timer reaches 0.
+1) PRODUCT SUMMARY
+- Genre: endless arcade action
+- Platform target: mobile-first web game in portrait orientation
+- Tech: plain HTML, CSS, and vanilla JavaScript
+- Renderer: single 2D canvas for gameplay
+- Session flow: main menu -> run -> game over -> restart/menu/shop
+- Core fantasy: a player ball clings to the arena walls and slices through moving target balls before a short timer expires
 
 
-3) CENTER CORE TARGET
-- The main objective is a large orb fixed at the middle of the arena.
-- Core behavior:
-  - starts large
-  - shrinks after every successful hit
-  - shows a cut exactly at the hit line
-  - reveals the next smaller orb underneath the split
-  - respawns as a fresh full-size orb after the minimum-size cut
-- Successful core hit reward:
-  - `+1` score
-  - `+1` coin
-  - combo increment
-  - timer reset to `3.0` seconds
-
-
-4) MOVEMENT MODEL
-- Attacker:
-  - wall-attached while idle
-  - no free movement inside the arena
-  - very fast dash travel
-  - dash duration is short (`~0.08` to `0.14 sec`)
-  - post-dash attach pulse on wall impact
-- Dash cooldown:
-  - `0.15 sec` safety cooldown between dashes
-- Dash target:
-  - always resolves to a wall landing point based on swipe direction
-
-
-5) INPUT / AIM / TUTORIAL
-- Touch or swipe can begin from anywhere in the arena.
-- Aim preview shows:
-  - full projected dash path
-  - wall landing marker
-- Opening tutorial guide:
-  - starts from the attacker
-  - points through the center core toward a valid wall target
-  - stays visible until the first actual launch
-- First-time movement hint:
-  - appears only once for new players
-  - explains that the attacker can reposition to a different wall spot before attacking
-
-
-6) COLLISION / PHYSICS MODEL
-- Core hits use swept circle collision.
-- Spike hits use swept moving-circle collision.
-- Temporary wall hazards use line-segment collision.
-- Collision order:
-  - earliest impact during the dash step wins
-  - tie-break currently favors the core target over hazards
-- Spike reflection:
-  - still rebounds the attacker back toward the launch wall
-- Temporary wall hit:
-  - counts as a miss
-
-
-7) DIFFICULTY
-- Difficulty now comes from:
-  - the shrinking center core
-  - moving spikes
-  - late-run temporary wall hazards
-
-
-8) TIMER / COMBO / COINS
-- No heart system.
-- Survival rule:
-  - player must land at least `1` core hit every `3.0` seconds
-  - timer starts only after the first dash
-  - timer reaching `0` immediately triggers game over
-- Low-time feedback:
-  - map visually heats up when close to timeout
-- Miss:
-  - no point is awarded
-  - combo resets to `0`
-  - `MISS` banner + red flash
-- Coins:
-  - `1` coin per successful core hit
-  - persisted in `localStorage`
-- Record:
-  - best score is saved in `localStorage`
-  - shown in menu and game-over screen
-
-
-9) HAZARDS
-- Spikes:
-  - 1st spike unlocks at `5` hits
-  - 2nd spike unlocks at `30` hits
-  - spikes move across the arena
-  - spikes are pushed away from the live target area
-  - spike collision rebounds the attacker and invalidates the dash
-- Temporary walls:
-  - unlock at `50` hits
-  - warning lane appears before spawn
-  - active hazard becomes a glowing line segment across the lane
-  - wall hit counts as a miss
-
-
-10) ATTACKER SKINS (COSMETIC)
-- Character silhouette:
-  - round attacker ball
-  - thick outline + glow aura
-- Skin roster:
-  - Neon Ninja: default unlocked
-  - Fire Ninja: `150` coins
-  - Water Ninja: `150` coins
-  - Lightning Ninja: `250` coins
-  - Earth Ninja: `250` coins
-  - Blossom Ninja: `300` coins
-- Skin effects are cosmetic only.
-
-
-11) VISUAL FEEDBACK
-- Dash:
-  - themed trail segments
-  - themed particles
-  - meteor-style movement flare
-  - afterimages
-- Core hit:
-  - spark burst
-  - core pulse / flash
-  - split halves peel away from the actual slice line
-  - next orb becomes visible under the cut
-  - warped pop-up banner
-  - screen flash + optional shake
-- Arena:
-  - bright near-white playable map interior
-  - warm framed outer shell
-  - low-time heat shimmer effect
-- Tutorial:
-  - animated path guide from attacker to the center core
-
-
-12) UI / OVERLAYS
-- HUD:
-  - timer bar
-  - combo
-  - score
-- Overlays:
-  - Main menu
-  - Shop
-  - Options
-  - Game over
-
-
-13) FILE MAP (ACTIVE)
+2) ACTIVE FILES
 - `index.html`
-  - canvas, HUD, overlays
+  - portrait shell
+  - HUD
+  - overlays
+  - gameplay canvas
 - `styles.css`
-  - mobile UI theme, warped banner styling, overlay visuals
+  - wood / jungle mobile UI theme
+  - portrait layout
+  - warped popup banner styling
 - `game.js`
-  - gameplay loop, rendering, collision handling, hazards, tutorial guide
+  - active runtime
+  - input
+  - update loop
+  - rendering
+  - particles
+  - shop and persistence
 - `src/`
-  - older source files, not the active runtime path for this build
+  - older source tree
+  - not the active runtime path for the shipped build
 
 
-14) RUN
-- Open `index.html` in a browser.
-- No backend required.
+3) SCREEN AND UI MODEL
+- The game is designed for phones first.
+- The visible playfield is a square `420 x 420` arena inside a taller portrait layout.
+- HUD outside the canvas:
+  - score
+  - combo
+  - timer bar and timer text
+  - short tip copy
+- Overlays:
+  - main menu
+  - shop
+  - options
+  - game over
+
+
+4) CORE GAME LOOP
+1. Start a run with one full-size target ball in the arena center.
+2. The target is already moving before the first dash.
+3. The player starts attached to the bottom wall.
+4. A tutorial line shows an opening path from the player through the first target.
+5. The timer does not start until the first real launch.
+6. Player swipes to dash from the current wall point to another wall point.
+7. During a dash, resolve all pre-existing target hits in path order until a spike or temporary wall interrupts the dash.
+8. Every successful hit:
+   - `+1` score
+   - `+1` coin
+   - combo increment
+   - timer reset to `3.0`
+9. Non-minimum targets split into two smaller moving children.
+10. Minimum-size targets explode and are removed.
+11. When the last live target is gone, spawn one new full-size target and continue the endless wave loop.
+12. Game over occurs immediately when the timer reaches `0`.
+
+
+5) CONSTANTS THAT DEFINE FEEL
+- Arena size: `420 x 420`
+- Player radius: `14`
+- Timer duration: `3.0` seconds
+- Dash speed: `4800`
+- Dash duration clamp: `0.08` to `0.14`
+- Dash cooldown: `0.15`
+- Target start radius: `74`
+- Target minimum radius: `24`
+- Target shrink per split: `14`
+- Target movement speed:
+  - base `68`
+  - grows by `1.1` per successful hit
+  - capped at `124`
+- Spike unlocks:
+  - first at `5` hits
+  - second at `30` hits
+- Temporary wall unlock:
+  - `50` hits
+- Temporary wall timings:
+  - warning `0.78`
+  - active `1.12`
+  - next delay random `1.9` to `3.8`
+
+
+6) PLAYER MODEL
+- The player is a wall-bound ball while idle.
+- The player does not free-roam inside the arena.
+- Every move is a dash from one wall position to another wall position.
+- After each dash, the player reattaches to the destination wall.
+- Input:
+  - pointer down anywhere in the arena starts aim mode
+  - aim guide shows projected line and landing point
+  - release launches
+- Repositioning is intentional:
+  - moving to a better wall spot before attacking is part of play
+
+
+7) TARGET SYSTEM
+- Live targets are stored as an array, not as one special center object.
+- Every target stores:
+  - `id`
+  - `x`, `y`
+  - `prevX`, `prevY`
+  - `vx`, `vy`
+  - `radius`
+  - `stage`
+  - `pulse`
+  - `flash`
+  - `bornShotId`
+
+Wave lifecycle:
+- Wave start:
+  - one full-size target
+  - centered in arena
+  - random drift direction
+- Successful hit on a non-minimum target:
+  - remove the hit target
+  - create two child targets
+  - child radius = `max(CORE_MIN_RADIUS, parent.radius - CORE_SHRINK_PER_HIT)`
+  - place children on opposite sides of the slice normal
+  - inherit parent drift direction with mirrored split impulse
+  - children are rendered immediately
+- Successful hit on a minimum-size target:
+  - remove the target
+  - play a richer explosion
+  - do not create children
+- When `targets.length === 0`:
+  - spawn one new full-size target
+  - trigger a larger respawn burst
+
+Shot gating:
+- Targets created during the current shot are tagged with `bornShotId = currentShotId`.
+- Those children are not eligible to be hit by the same dash that created them.
+- They become hittable on later dashes.
+
+
+8) TARGET MOVEMENT AND PHYSICS
+- All live targets drift continuously while a run is active, even before the timer starts.
+- Movement pauses while split shell effects are active so the cut stays readable.
+- Target balls bounce off arena bounds.
+- Target balls bounce off each other using disc collision response.
+- Targets and spikes also bounce off each other using the same disc collision response.
+- Mass should be proportional to `radius^2`.
+- Collision resolution must:
+  - separate overlap
+  - update velocities using elastic-style response
+  - clamp discs back inside arena bounds
+
+
+9) PLAYER-HIT COLLISION RULES
+- Player collision uses swept circle checks because both the player and targets move quickly.
+- For every dash frame:
+  - collect target hit events for all eligible live targets
+  - collect the earliest spike hit
+  - collect the temporary wall hit if one exists
+- Sort by impact time `t`.
+- On ties, target hits win over hazards.
+- Process sorted events in order:
+  - target hit -> split or explode target and continue
+  - spike hit -> bounce player back toward launch wall and stop the chain
+  - temporary wall hit -> same interruption behavior as a miss and stop the chain
+- A dash can cut multiple pre-existing targets in one pass.
+
+
+10) TARGET FX MODEL
+- Transient target effects are stored separately from live targets.
+- Two effect families are required:
+  - `split`
+    - stores center position, impact point, cut direction, original radius, elapsed time, duration
+    - draws the old shell cut in half and peeling apart
+  - `burst`
+    - stores center, base radius, colors, elapsed time, duration
+    - draws expanding glow and ring effects
+
+Split visual:
+- Draw live targets first.
+- Draw split shell halves on top.
+- The new children are visible underneath the old shell effect.
+- The shell halves shrink and fade as they separate along the slice normal.
+
+Explosion visual:
+- Small-target death must feel more alive than before:
+  - more sparkles
+  - ember dots
+  - shard pieces
+  - ring pulse
+  - glow flash
+- Board-clear respawn burst is larger than a regular small-target explosion.
+
+
+11) SPIKES
+- Spikes are moving circular hazards rendered with spike teeth.
+- Count:
+  - 0 before `5` successful hits
+  - 1 at `5`
+  - 2 at `30`
+- Speed:
+  - base `80`
+  - scales with difficulty
+  - capped at `230`
+- Spikes bounce off walls, other spikes, and live target balls.
+- Spikes are no longer forced away from the target area.
+- If the player dash hits a spike before finishing its target chain:
+  - player rebounds toward launch wall
+  - dash is treated as a miss
+
+
+12) TEMPORARY WALL HAZARD
+- Unlocks at `50` successful hits.
+- Telegraph with a warning lane first.
+- Spawn as a glowing horizontal or vertical line segment.
+- This hazard affects only the player, not target balls.
+- If the player intersects it during a dash:
+  - the dash is interrupted
+  - the player rebounds
+  - the attempt is a miss
+
+
+13) SCORE, TIMER, COMBO, COINS
+Timer:
+- Starts only on first real dash
+- Resets to `3.0` on every successful split or explosion hit
+- Time out ends the run immediately
+- Low time heats up the map visually
+
+Score:
+- `+1` per successful target hit
+
+Combo:
+- increments on successful hit
+- resets on miss
+- best combo tracked for run summary
+
+Coins:
+- `+1` per successful target hit
+- persisted between sessions
+
+
+14) ONBOARDING
+Opening slice guide:
+- Visible only at the beginning of a run
+- Drawn from the player toward a valid wall destination through the lead target
+- Hidden on first real launch or after the guide timer fades
+
+One-time reposition hint:
+- Shown only once for a new player
+- Explains the player can move to another wall position before attacking
+- Persisted in profile storage
+
+
+15) VISUAL STYLE
+- Warm jungle / carved wood mobile arcade theme
+- Arena interior is bright and near-white
+- Target balls use layered warm radial gradients with aura, outline, and pulse ring
+- Feedback stack:
+  - dash trails
+  - particles
+  - afterimages
+  - wall attach pulses
+  - warped center banners like `HIT!`, `MISS`, `NINJA SKILLS`
+- The low-time arena gets a heated shimmer treatment
+
+
+16) PERSISTENCE
+Storage key:
+- `lineSliceBallsEndlessSaveV1`
+
+Persisted profile fields:
+- `coins`
+- `selectedSkin`
+- `ownedSkins`
+- `records.bestScore`
+- `tutorials.repositionHintSeen`
+- `options.screenShake`
+
+Behavior:
+- ignore storage failures safely
+- update best score when a run ends
+
+
+17) SHOP AND COSMETICS
+- Skins are cosmetic only
+- Current roster:
+  - Neon Ninja: free
+  - Fire Ninja: `150`
+  - Water Ninja: `150`
+  - Lightning Ninja: `250`
+  - Earth Ninja: `250`
+  - Blossom Ninja: `300`
+- Skins affect:
+  - player colors
+  - glow
+  - trail particles
+  - small silhouette accents
+
+
+18) RENDER ORDER
+1. arena background / glow / heat
+2. live target balls
+3. target split and burst effects
+4. spikes
+5. temporary wall hazard and warning
+6. dash trail remnants
+7. afterimages
+8. player
+9. tutorial guide and move hint
+10. attach pulses
+11. particles
+12. aim guide
+13. DOM flash overlay and center banner outside canvas
+
+
+19) MAIN LOOP SHAPE
+1. update target pulses/flashes and target FX timers
+2. update dash cooldown / canShoot
+3. if not in run:
+   - update particles only
+   - stop
+4. decrement reposition hint timer
+5. update live target motion
+6. if timer started:
+   - decrement opening guide timer
+7. if timer not started:
+   - update particles only
+   - stop
+8. decrement survival timer
+9. if timer <= 0:
+   - show `TIME UP`
+   - enter game over
+   - stop
+10. update spikes and spike-target collisions
+11. update player dash and resolve sorted hit events
+12. update temporary wall system
+13. update particles
+
+
+20) REBUILD CHECKLIST
+- portrait layout with square arena
+- one starting target that moves before the first dash
+- timer starts only on first launch
+- every non-minimum hit splits one target into two children
+- minimum-size targets explode instead of splitting
+- clearing all live targets respawns one full-size target with a bigger burst
+- one dash can cut multiple pre-existing targets
+- children created by the current dash cannot be hit again by that same dash
+- spikes bounce with targets
+- spikes still interrupt the player dash
+- temporary wall remains player-only
+- combo, score, timer, coins, record, shop, and options still work
+- low-time heat effect still works
+
+
+21) WHAT MUST NOT HAPPEN
+- Do not restore the old defender-line / red-ball mechanic.
+- Do not bring back the flying-arrow hazard.
+- Do not start the timer before first launch.
+- Do not let temporary walls affect target balls.
+- Do not make the game single-target again.

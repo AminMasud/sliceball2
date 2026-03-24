@@ -24,14 +24,21 @@
   const PLAYER_RADIUS = 14;
   const CORE_START_RADIUS = 74;
   const CORE_MIN_RADIUS = 24;
-  const CORE_SHRINK_PER_HIT = 3.4;
+  const CORE_SHRINK_PER_HIT = 14;
   const CORE_CLEARANCE_PADDING = 20;
+  const CORE_SPEED_BASE = 68;
+  const CORE_SPEED_SCALE = 1.1;
+  const CORE_SPEED_MAX = 124;
   const CORE_SPLIT_DURATION = 0.46;
   const CORE_RESPAWN_DELAY = 0.2;
+  const TARGET_SPLIT_PUSH = 32;
+  const TARGET_BURST_DURATION = 0.3;
+  const TARGET_RESPAWN_BURST_DURATION = 0.36;
+  const TARGET_BOUNCE_RESTITUTION = 0.96;
   const MOVE_HINT_DURATION = 6.5;
   const DASH_MIN_DURATION = 0.08;
   const DASH_MAX_DURATION = 0.14;
-  const DASH_SPEED = 4000;
+  const DASH_SPEED = 4800;
   const DASH_COOLDOWN = 0.15;
   const NINJA_CHAIN_WINDOW_MS = 1150;
   const NINJA_CHAIN_REQUIRED = 3;
@@ -191,14 +198,9 @@
       radius: PLAYER_RADIUS,
       wall: "bottom",
     },
-    core: {
-      x: ARENA.width / 2,
-      y: ARENA.height / 2,
-      radius: CORE_START_RADIUS,
-      pulse: 0,
-      flash: 0,
-      sliceFx: null,
-    },
+    nextTargetId: 1,
+    targets: [],
+    targetFx: [],
     aim: {
       active: false,
       pointerId: null,
@@ -217,6 +219,7 @@
       duration: 0,
       elapsed: 0,
       cooldown: 0,
+      id: 0,
       sparkleCooldown: 0,
       afterimageCooldown: 0,
       dashParticlesEmitted: 0,
@@ -235,6 +238,7 @@
       lastNinjaAt: -99999,
       coinsEarned: 0,
       difficulty: 0,
+      coreSpeed: CORE_SPEED_BASE,
       spikeSpeed: SPIKE_SPEED_BASE,
       obstacleUnlocked: false,
     },
@@ -490,21 +494,102 @@
     return target;
   }
 
-  function getNextCoreRadius(currentRadius = state.core.radius) {
+  function getTargetStageForRadius(radius = CORE_START_RADIUS) {
+    return Math.max(0, Math.round((CORE_START_RADIUS - radius) / CORE_SHRINK_PER_HIT));
+  }
+
+  function getNextTargetRadius(currentRadius = CORE_START_RADIUS) {
     const candidate = currentRadius - CORE_SHRINK_PER_HIT;
-    return candidate < CORE_MIN_RADIUS ? CORE_START_RADIUS : clamp(candidate, CORE_MIN_RADIUS, CORE_START_RADIUS);
+    return clamp(candidate, CORE_MIN_RADIUS, CORE_START_RADIUS);
   }
 
-  function getCoreExclusionRadius(entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
-    const visibleRadius = Math.max(
-      state.core.radius,
-      state.core.sliceFx?.fromRadius ?? 0,
-    );
-    return visibleRadius + entityRadius + padding;
+  function isTargetAtMinSize(target) {
+    return target.radius <= (CORE_MIN_RADIUS + 0.01);
   }
 
-  function isPointInsideCoreBuffer(x, y, entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
-    return distance(x, y, state.core.x, state.core.y) < getCoreExclusionRadius(entityRadius, padding);
+  function createTarget({
+    x = ARENA.width / 2,
+    y = ARENA.height / 2,
+    radius = CORE_START_RADIUS,
+    stage = getTargetStageForRadius(radius),
+    vx = 0,
+    vy = 0,
+    pulse = 0,
+    flash = 0,
+    bornShotId = 0,
+  } = {}) {
+    return {
+      id: state.nextTargetId++,
+      x,
+      y,
+      prevX: x,
+      prevY: y,
+      vx,
+      vy,
+      radius,
+      stage,
+      pulse,
+      flash,
+      bornShotId,
+    };
+  }
+
+  function getLargestTargetRadius(targets = state.targets) {
+    return targets.reduce((maxRadius, target) => Math.max(maxRadius, target.radius), 0);
+  }
+
+  function getTargetVisualFocus() {
+    if (state.targets.length) {
+      let totalWeight = 0;
+      let x = 0;
+      let y = 0;
+      let radius = 0;
+      state.targets.forEach((target) => {
+        const weight = target.radius * target.radius;
+        totalWeight += weight;
+        x += target.x * weight;
+        y += target.y * weight;
+        radius = Math.max(radius, target.radius);
+      });
+      return {
+        x: totalWeight > 0 ? x / totalWeight : ARENA.width / 2,
+        y: totalWeight > 0 ? y / totalWeight : ARENA.height / 2,
+        radius,
+      };
+    }
+
+    const splitFx = state.targetFx.find((fx) => fx.type === "split");
+    if (splitFx) {
+      return {
+        x: splitFx.centerX,
+        y: splitFx.centerY,
+        radius: splitFx.fromRadius,
+      };
+    }
+
+    return {
+      x: ARENA.width / 2,
+      y: ARENA.height / 2,
+      radius: CORE_START_RADIUS,
+    };
+  }
+
+  function getVisibleTargetRadius() {
+    let visibleRadius = getLargestTargetRadius();
+    state.targetFx.forEach((fx) => {
+      if (fx.type === "split") {
+        visibleRadius = Math.max(visibleRadius, fx.fromRadius);
+      } else {
+        visibleRadius = Math.max(visibleRadius, fx.baseRadius ?? 0);
+      }
+    });
+    return visibleRadius || CORE_START_RADIUS;
+  }
+
+  function isPointInsideTargetBuffer(x, y, entityRadius = 0, padding = CORE_CLEARANCE_PADDING, targets = state.targets) {
+    return targets.some((target) => {
+      return distance(x, y, target.x, target.y) < (target.radius + entityRadius + padding);
+    });
   }
 
   function distancePointToSegment(px, py, ax, ay, bx, by) {
@@ -868,36 +953,140 @@
     }
   }
 
-  function emitCoreCollapseBurst(fx) {
-    const burstCenter = { x: state.core.x, y: state.core.y };
-    const burstRadius = Math.max(18, fx.toRadius * 0.9);
-    state.attachPulses.push({
-      x: burstCenter.x,
-      y: burstCenter.y,
-      life: 0.24,
-      maxLife: 0.24,
-      radius: burstRadius * 0.3,
-      maxRadius: burstRadius * 1.55,
-      color: "rgba(255, 236, 187, 0.86)",
+  function pushTargetBurstFx({
+    x,
+    y,
+    baseRadius,
+    duration = TARGET_BURST_DURATION,
+    glow = "rgba(255, 224, 166, 0.48)",
+    ring = "rgba(255, 243, 208, 0.92)",
+  }) {
+    state.targetFx.push({
+      type: "burst",
+      x,
+      y,
+      baseRadius,
+      glow,
+      ring,
+      time: 0,
+      duration,
     });
-    emitSliceSparks(burstCenter, "rgba(255, 248, 228, 0.98)", 10);
-    emitSliceSparks(burstCenter, "rgba(255, 182, 106, 0.9)", 8);
+  }
 
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (Math.PI * 2 * i) / 8 + random(-0.2, 0.2);
-      const speed = random(90, 180);
+  function emitTargetExplosion(center, baseRadius, options = {}) {
+    const sparkleCount = options.sparkleCount ?? 12;
+    const emberCount = options.emberCount ?? 10;
+    const shardCount = options.shardCount ?? 8;
+    const flashColor = options.flashColor ?? "rgba(255, 214, 150, 0.38)";
+    const flashPower = options.flashPower ?? 0.55;
+    const flashDuration = options.flashDuration ?? 0.14;
+    const shakeDuration = options.shakeDuration ?? 0.15;
+    const shakeStrength = options.shakeStrength ?? 6;
+    const duration = options.duration ?? TARGET_BURST_DURATION;
+
+    pushTargetBurstFx({
+      x: center.x,
+      y: center.y,
+      baseRadius,
+      duration,
+      glow: options.glow ?? "rgba(255, 206, 132, 0.42)",
+      ring: options.ring ?? "rgba(255, 246, 214, 0.94)",
+    });
+    state.attachPulses.push({
+      x: center.x,
+      y: center.y,
+      life: duration,
+      maxLife: duration,
+      radius: baseRadius * 0.2,
+      maxRadius: baseRadius * 1.75,
+      color: options.pulseColor ?? "rgba(255, 236, 187, 0.84)",
+    });
+    emitSliceSparks(center, "rgba(255, 247, 226, 0.98)", Math.max(10, Math.floor(sparkleCount * 0.55)));
+    emitSliceSparks(center, "rgba(255, 182, 106, 0.92)", Math.max(8, Math.floor(emberCount * 0.55)));
+
+    for (let i = 0; i < sparkleCount; i += 1) {
+      const angle = random(0, Math.PI * 2);
+      const speed = random(baseRadius * 1.9, baseRadius * 3.4);
       spawnParticle({
-        x: burstCenter.x,
-        y: burstCenter.y,
+        x: center.x,
+        y: center.y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: random(0.18, 0.28),
-        maxLife: 0.28,
-        size: random(2.2, 4.2),
-        color: i % 2 === 0 ? "rgba(255, 232, 178, 0.94)" : "rgba(255, 156, 92, 0.9)",
+        life: random(0.18, 0.36),
+        maxLife: 0.36,
+        size: random(2.1, 4.8),
+        color: i % 2 === 0 ? "rgba(255, 246, 222, 0.98)" : "rgba(255, 205, 112, 0.95)",
+        shape: "sparkle",
+        rotation: random(0, Math.PI * 2),
+        spin: random(-9, 9),
         drag: 0.92,
       });
     }
+
+    for (let i = 0; i < emberCount; i += 1) {
+      const angle = random(0, Math.PI * 2);
+      const speed = random(baseRadius * 1.4, baseRadius * 2.8);
+      spawnParticle({
+        x: center.x,
+        y: center.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: random(0.24, 0.42),
+        maxLife: 0.42,
+        size: random(2.2, 5.2),
+        color: i % 3 === 0 ? "rgba(255, 245, 216, 0.92)" : "rgba(255, 146, 78, 0.9)",
+        shape: "ember",
+        drag: 0.9,
+      });
+    }
+
+    for (let i = 0; i < shardCount; i += 1) {
+      const angle = random(0, Math.PI * 2);
+      const speed = random(baseRadius * 1.3, baseRadius * 2.5);
+      spawnParticle({
+        x: center.x,
+        y: center.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: random(0.18, 0.34),
+        maxLife: 0.34,
+        size: random(2.6, 5.8),
+        color: i % 2 === 0 ? "rgba(255, 223, 162, 0.92)" : "rgba(255, 127, 74, 0.88)",
+        shape: "shard",
+        rotation: random(0, Math.PI * 2),
+        spin: random(-8, 8),
+        drag: 0.91,
+      });
+    }
+
+    triggerFlash(flashColor, flashPower, flashDuration);
+    triggerShake(shakeDuration, shakeStrength);
+  }
+
+  function emitTargetRespawnBurst(center, baseRadius) {
+    state.attachPulses.push({
+      x: center.x,
+      y: center.y,
+      life: TARGET_RESPAWN_BURST_DURATION,
+      maxLife: TARGET_RESPAWN_BURST_DURATION,
+      radius: baseRadius * 0.16,
+      maxRadius: baseRadius * 2.3,
+      color: "rgba(255, 244, 208, 0.92)",
+    });
+    emitTargetExplosion(center, baseRadius, {
+      sparkleCount: 20,
+      emberCount: 18,
+      shardCount: 12,
+      duration: TARGET_RESPAWN_BURST_DURATION,
+      glow: "rgba(255, 228, 170, 0.52)",
+      ring: "rgba(255, 248, 222, 0.98)",
+      pulseColor: "rgba(255, 228, 170, 0.9)",
+      flashColor: "rgba(255, 224, 166, 0.44)",
+      flashPower: 0.7,
+      flashDuration: 0.18,
+      shakeDuration: 0.18,
+      shakeStrength: 7.5,
+    });
   }
 
   function createDashParticle(skin) {
@@ -1049,7 +1238,124 @@
   function updateDifficulty() {
     const d = state.run.slices;
     state.run.difficulty = d;
+    state.run.coreSpeed = CORE_SPEED_BASE + Math.min(CORE_SPEED_MAX - CORE_SPEED_BASE, d * CORE_SPEED_SCALE);
     state.run.spikeSpeed = SPIKE_SPEED_BASE + Math.min(SPIKE_SPEED_MAX - SPIKE_SPEED_BASE, d * SPIKE_SPEED_SCALE);
+  }
+
+  function setTargetVelocity(target, angle, speed = state.run.coreSpeed ?? CORE_SPEED_BASE) {
+    target.vx = Math.cos(angle) * speed;
+    target.vy = Math.sin(angle) * speed;
+  }
+
+  function retuneTargetVelocity(target, randomizeAngle = false) {
+    const currentSpeed = Math.hypot(target.vx, target.vy);
+    const angle = (randomizeAngle || currentSpeed < 0.0001)
+      ? random(0, Math.PI * 2)
+      : Math.atan2(target.vy, target.vx);
+    setTargetVelocity(target, angle);
+  }
+
+  function clampDiscToArena(entity) {
+    entity.x = clamp(entity.x, entity.radius, ARENA.width - entity.radius);
+    entity.y = clamp(entity.y, entity.radius, ARENA.height - entity.radius);
+  }
+
+  function resolveDiscCollision(first, second, restitution = TARGET_BOUNCE_RESTITUTION) {
+    let dx = second.x - first.x;
+    let dy = second.y - first.y;
+    let gap = Math.hypot(dx, dy);
+    const minGap = first.radius + second.radius;
+
+    if (gap >= minGap) {
+      return false;
+    }
+
+    if (gap < 0.0001) {
+      gap = 0.0001;
+      dx = 1;
+      dy = 0;
+    }
+
+    const nx = dx / gap;
+    const ny = dy / gap;
+    const overlap = minGap - gap;
+    const massA = Math.max(1, first.radius * first.radius);
+    const massB = Math.max(1, second.radius * second.radius);
+    const totalMass = massA + massB;
+    const pushA = overlap * (massB / totalMass);
+    const pushB = overlap * (massA / totalMass);
+
+    first.x -= nx * pushA;
+    first.y -= ny * pushA;
+    second.x += nx * pushB;
+    second.y += ny * pushB;
+
+    const relVx = second.vx - first.vx;
+    const relVy = second.vy - first.vy;
+    const normalSpeed = (relVx * nx) + (relVy * ny);
+
+    if (normalSpeed < 0) {
+      const impulse = (-(1 + restitution) * normalSpeed) / ((1 / massA) + (1 / massB));
+      const impulseX = impulse * nx;
+      const impulseY = impulse * ny;
+      first.vx -= impulseX / massA;
+      first.vy -= impulseY / massA;
+      second.vx += impulseX / massB;
+      second.vy += impulseY / massB;
+    }
+
+    clampDiscToArena(first);
+    clampDiscToArena(second);
+    return true;
+  }
+
+  function updateTargets(dt) {
+    const freezeTargets = state.targetFx.some((fx) => fx.type === "split");
+
+    state.targets.forEach((target) => {
+      target.prevX = target.x;
+      target.prevY = target.y;
+      if (freezeTargets) {
+        return;
+      }
+
+      if (Math.hypot(target.vx, target.vy) < 0.0001) {
+        retuneTargetVelocity(target, true);
+      } else {
+        retuneTargetVelocity(target, false);
+      }
+
+      target.x += target.vx * dt;
+      target.y += target.vy * dt;
+
+      if (target.x < target.radius || target.x > ARENA.width - target.radius) {
+        target.vx *= -1;
+        target.x = clamp(target.x, target.radius, ARENA.width - target.radius);
+      }
+
+      if (target.y < target.radius || target.y > ARENA.height - target.radius) {
+        target.vy *= -1;
+        target.y = clamp(target.y, target.radius, ARENA.height - target.radius);
+      }
+    });
+
+    if (freezeTargets) {
+      return;
+    }
+
+    for (let i = 0; i < state.targets.length; i += 1) {
+      for (let j = i + 1; j < state.targets.length; j += 1) {
+        resolveDiscCollision(state.targets[i], state.targets[j]);
+      }
+    }
+  }
+
+  function resolveTargetObstacleCollisions() {
+    state.targets.forEach((target) => {
+      state.obstacles.forEach((obstacle) => {
+        resolveDiscCollision(target, obstacle);
+      });
+    });
   }
 
   function getSpikeSeparation(radiusA, radiusB) {
@@ -1072,7 +1378,7 @@
       const x = random(radius + 14, ARENA.width - radius - 14);
       const y = random(radius + 14, ARENA.height - radius - 14);
 
-      if (isPointInsideCoreBuffer(x, y, radius, 26)) {
+      if (isPointInsideTargetBuffer(x, y, radius, 26)) {
         continue;
       }
 
@@ -1113,35 +1419,6 @@
       angle: 0,
       spin: 0.7,
     };
-  }
-
-  function resolveObstacleCoreCollision(obstacle) {
-    const minGap = getCoreExclusionRadius(obstacle.radius, 16);
-    let dx = obstacle.x - state.core.x;
-    let dy = obstacle.y - state.core.y;
-    let gap = Math.hypot(dx, dy);
-
-    if (gap >= minGap) {
-      return;
-    }
-
-    if (gap < 0.0001) {
-      gap = 0.0001;
-      dx = 1;
-      dy = 0;
-    }
-
-    const nx = dx / gap;
-    const ny = dy / gap;
-    const overlap = minGap - gap;
-    obstacle.x += nx * overlap;
-    obstacle.y += ny * overlap;
-
-    const dot = (obstacle.vx * nx) + (obstacle.vy * ny);
-    if (dot < 0) {
-      obstacle.vx -= 2 * dot * nx;
-      obstacle.vy -= 2 * dot * ny;
-    }
   }
 
   function unlockObstaclesIfNeeded() {
@@ -1341,15 +1618,118 @@
     };
   }
 
-  function detectCoreHit(previous, next) {
-    return sweepCircleCollision(
-      previous,
-      next,
-      state.player.radius,
-      { x: state.core.x, y: state.core.y },
-      { x: state.core.x, y: state.core.y },
-      state.core.radius,
-    );
+  function spawnFreshWaveTarget(withBurst = false) {
+    const target = createTarget({
+      x: ARENA.width / 2,
+      y: ARENA.height / 2,
+      radius: CORE_START_RADIUS,
+      stage: 0,
+      bornShotId: state.shot.active ? state.shot.id : 0,
+    });
+    retuneTargetVelocity(target, true);
+    target.pulse = 1;
+    target.flash = 1;
+    state.targets.push(target);
+
+    if (withBurst) {
+      emitTargetRespawnBurst({ x: target.x, y: target.y }, target.radius);
+    }
+
+    return target;
+  }
+
+  function clampTargetSpawnPoint(x, y, radius) {
+    return {
+      x: clamp(x, radius, ARENA.width - radius),
+      y: clamp(y, radius, ARENA.height - radius),
+    };
+  }
+
+  function findLiveTargetById(targetId) {
+    return state.targets.find((target) => target.id === targetId) ?? null;
+  }
+
+  function detectTargetHits(previous, next, targetSnapshot) {
+    return targetSnapshot.flatMap((target) => {
+      const hit = sweepCircleCollision(
+        previous,
+        next,
+        state.player.radius,
+        { x: target.prevX ?? target.x, y: target.prevY ?? target.y },
+        { x: target.x, y: target.y },
+        target.radius,
+      );
+      return hit ? [{ type: "target", targetId: target.id, hit }] : [];
+    });
+  }
+
+  function detectActiveWallHit(previous, next) {
+    const wall = state.arrows.active;
+    if (!wall) {
+      return null;
+    }
+
+    const combined = state.player.radius + wall.thickness;
+    const horizontal = Math.abs(wall.ay - wall.by) < 0.001;
+    if (horizontal) {
+      const dy = next.y - previous.y;
+      if (Math.abs(dy) < 0.0001) {
+        return null;
+      }
+
+      const boundaryY = wall.ay + (dy > 0 ? -combined : combined);
+      const t = (boundaryY - previous.y) / dy;
+      if (t < 0 || t > 1) {
+        return null;
+      }
+
+      const x = lerp(previous.x, next.x, t);
+      const minX = Math.min(wall.ax, wall.bx) - combined;
+      const maxX = Math.max(wall.ax, wall.bx) + combined;
+      if (x < minX || x > maxX) {
+        return null;
+      }
+
+      return {
+        type: "wall",
+        hit: {
+          t,
+          x,
+          y: boundaryY,
+          contactX: clamp(x, Math.min(wall.ax, wall.bx), Math.max(wall.ax, wall.bx)),
+          contactY: wall.ay,
+        },
+      };
+    }
+
+    const dx = next.x - previous.x;
+    if (Math.abs(dx) < 0.0001) {
+      return null;
+    }
+
+    const boundaryX = wall.ax + (dx > 0 ? -combined : combined);
+    const t = (boundaryX - previous.x) / dx;
+    if (t < 0 || t > 1) {
+      return null;
+    }
+
+    const y = lerp(previous.y, next.y, t);
+    const minY = Math.min(wall.ay, wall.by) - combined;
+    const maxY = Math.max(wall.ay, wall.by) + combined;
+    if (y < minY || y > maxY) {
+      return null;
+    }
+
+    return {
+      type: "wall",
+      hit: {
+        t,
+        x: boundaryX,
+        y,
+        contactX: wall.ax,
+        contactY: clamp(y, Math.min(wall.ay, wall.by), Math.max(wall.ay, wall.by)),
+      },
+    };
   }
 
   function detectObstacleHit(previous, next) {
@@ -1382,32 +1762,42 @@
     showBanner("MISS", "miss");
   }
 
-  function onCoreHit(impactPoint) {
-    if (state.shot.sliced) {
-      return;
-    }
+  function createSplitChildren(target, normal) {
+    const childRadius = getNextTargetRadius(target.radius);
+    const offset = Math.max(childRadius * 0.95, TARGET_SPLIT_PUSH);
+    const baseDir = normalize(target.vx, target.vy);
+    const spawnNormal = (normal.x === 0 && normal.y === 0)
+      ? { x: 0, y: -1 }
+      : normal;
+    const childSpeed = state.run.coreSpeed ?? CORE_SPEED_BASE;
 
-    const previousRadius = state.core.radius;
-    const nextRadius = getNextCoreRadius(previousRadius);
-    const respawns = previousRadius <= (CORE_MIN_RADIUS + 0.01);
-    const dashDir = normalize(
-      state.player.vx || (state.shot.endX - state.shot.startX),
-      state.player.vy || (state.shot.endY - state.shot.startY),
-    );
-    state.core.sliceFx = {
-      time: 0,
-      duration: CORE_SPLIT_DURATION,
-      fromRadius: previousRadius,
-      toRadius: nextRadius,
-      impactX: impactPoint?.x ?? state.core.x,
-      impactY: impactPoint?.y ?? state.core.y,
-      dirX: dashDir.x === 0 && dashDir.y === 0 ? 1 : dashDir.x,
-      dirY: dashDir.x === 0 && dashDir.y === 0 ? 0 : dashDir.y,
-      respawns,
-    };
-    state.core.radius = nextRadius;
+    return [-1, 1].map((sign) => {
+      const spawn = clampTargetSpawnPoint(
+        target.x + (spawnNormal.x * offset * sign),
+        target.y + (spawnNormal.y * offset * sign),
+        childRadius,
+      );
+      const child = createTarget({
+        x: spawn.x,
+        y: spawn.y,
+        radius: childRadius,
+        stage: target.stage + 1,
+        pulse: 0.48,
+        flash: 0.4,
+        bornShotId: state.shot.id,
+      });
+      const drift = normalize(
+        baseDir.x + (spawnNormal.x * sign * 0.9),
+        baseDir.y + (spawnNormal.y * sign * 0.9),
+      );
+      const driftAngle = Math.atan2(drift.y, drift.x);
+      setTargetVelocity(child, driftAngle, childSpeed);
+      return child;
+    });
+  }
+
+  function applyTargetHitRewards() {
     state.shot.sliced = true;
-
     state.run.score += 1;
     state.run.combo += 1;
     state.run.bestCombo = Math.max(state.run.bestCombo, state.run.combo);
@@ -1429,17 +1819,12 @@
     updateSliceTimerDisplay();
     updateComboDisplay(true);
     updateDifficulty();
+    state.targets.forEach((target) => {
+      retuneTargetVelocity(target, false);
+    });
     unlockObstaclesIfNeeded();
     unlockArrowHazardsIfNeeded();
 
-    const coreImpact = impactPoint ?? {
-      x: state.core.x,
-      y: state.core.y,
-    };
-
-    state.core.pulse = 1;
-    state.core.flash = 1;
-    emitSliceSparks(coreImpact, "rgba(255, 249, 224, 0.98)", 18);
     const comboBoost = state.effects.comboBoost;
     triggerShake(0.22 + (comboBoost * 0.04), 8 + (state.run.difficulty * 0.04) + (comboBoost * 4.8));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9 + (comboBoost * 0.08), 0.12 + (comboBoost * 0.01));
@@ -1453,6 +1838,65 @@
       triggerNinjaSkills();
     } else {
       showBanner("HIT!", "slice");
+    }
+  }
+
+  function onTargetHit(targetId, hit) {
+    const targetIndex = state.targets.findIndex((target) => target.id === targetId);
+    if (targetIndex === -1) {
+      return;
+    }
+
+    const target = state.targets[targetIndex];
+    const dashDir = normalize(
+      state.player.vx || (state.shot.endX - state.shot.startX),
+      state.player.vy || (state.shot.endY - state.shot.startY),
+    );
+    const cutDir = (dashDir.x === 0 && dashDir.y === 0) ? { x: 1, y: 0 } : dashDir;
+    const normal = normalize(hit?.normalX ?? -cutDir.y, hit?.normalY ?? cutDir.x);
+    const impact = {
+      x: hit?.contactX ?? target.x,
+      y: hit?.contactY ?? target.y,
+    };
+    const center = { x: target.x, y: target.y };
+
+    state.targets.splice(targetIndex, 1);
+    applyTargetHitRewards();
+
+    if (isTargetAtMinSize(target)) {
+      emitTargetExplosion(center, Math.max(16, target.radius * 1.25), {
+        sparkleCount: 16,
+        emberCount: 14,
+        shardCount: 10,
+        duration: TARGET_BURST_DURATION,
+        glow: "rgba(255, 198, 132, 0.46)",
+        ring: "rgba(255, 242, 204, 0.94)",
+      });
+    } else {
+      const children = createSplitChildren(target, normal);
+      children.forEach((child) => {
+        state.targets.push(child);
+      });
+      if (children.length >= 2) {
+        resolveDiscCollision(children[0], children[1], 0.92);
+      }
+      state.targetFx.push({
+        type: "split",
+        time: 0,
+        duration: CORE_SPLIT_DURATION,
+        centerX: center.x,
+        centerY: center.y,
+        fromRadius: target.radius,
+        impactX: impact.x,
+        impactY: impact.y,
+        dirX: cutDir.x,
+        dirY: cutDir.y,
+      });
+      emitSliceSparks(impact, "rgba(255, 249, 224, 0.98)", 18);
+    }
+
+    if (state.targets.length === 0) {
+      spawnFreshWaveTarget(true);
     }
   }
 
@@ -1521,6 +1965,7 @@
 
   function startRun() {
     state.inRun = true;
+    state.nextTargetId = 1;
     state.run.score = 0;
     state.run.combo = 0;
     state.run.bestCombo = 0;
@@ -1540,10 +1985,8 @@
     state.arrows.preview = null;
     state.arrows.active = null;
     state.particles.length = 0;
-    state.core.radius = CORE_START_RADIUS;
-    state.core.pulse = 0;
-    state.core.flash = 0;
-    state.core.sliceFx = null;
+    state.targets = [];
+    state.targetFx = [];
     state.effects.shakeTime = 0;
     state.effects.shakeStrength = 0;
     state.effects.flashTime = 0;
@@ -1551,12 +1994,14 @@
     state.shot.active = false;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
+    state.shot.id = 0;
     state.shot.elapsed = 0;
     state.shot.duration = 0;
     state.shot.cooldown = 0;
     state.shot.dashParticlesEmitted = 0;
     state.aim.active = false;
     updateDifficulty();
+    spawnFreshWaveTarget(false);
     resetPlayerToStartWall();
     if (!state.profile.tutorials.repositionHintSeen) {
       state.run.moveHintTime = MOVE_HINT_DURATION;
@@ -1628,6 +2073,7 @@
     state.shot.active = true;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
+    state.shot.id += 1;
     state.shot.startX = state.player.x;
     state.shot.startY = state.player.y;
     state.shot.endX = target.x;
@@ -1676,55 +2122,17 @@
         obstacle.vy *= -1;
         obstacle.y = clamp(obstacle.y, obstacle.radius, ARENA.height - obstacle.radius);
       }
-
-      resolveObstacleCoreCollision(obstacle);
     });
 
     if (state.obstacles.length >= 2) {
       for (let i = 0; i < state.obstacles.length; i += 1) {
         for (let j = i + 1; j < state.obstacles.length; j += 1) {
-          const first = state.obstacles[i];
-          const second = state.obstacles[j];
-          let dx = second.x - first.x;
-          let dy = second.y - first.y;
-          let gap = Math.hypot(dx, dy);
-          const minGap = getSpikeSeparation(first.radius, second.radius);
-
-          if (gap >= minGap) {
-            continue;
-          }
-
-          if (gap < 0.0001) {
-            gap = 0.0001;
-            dx = 1;
-            dy = 0;
-          }
-
-          const nx = dx / gap;
-          const ny = dy / gap;
-          const overlap = minGap - gap;
-          const pushX = nx * (overlap / 2);
-          const pushY = ny * (overlap / 2);
-
-          first.x -= pushX;
-          first.y -= pushY;
-          second.x += pushX;
-          second.y += pushY;
-
-          first.vx -= nx * 20;
-          first.vy -= ny * 20;
-          second.vx += nx * 20;
-          second.vy += ny * 20;
-
-          first.x = clamp(first.x, first.radius, ARENA.width - first.radius);
-          first.y = clamp(first.y, first.radius, ARENA.height - first.radius);
-          second.x = clamp(second.x, second.radius, ARENA.width - second.radius);
-          second.y = clamp(second.y, second.radius, ARENA.height - second.radius);
-          resolveObstacleCoreCollision(first);
-          resolveObstacleCoreCollision(second);
+          resolveDiscCollision(state.obstacles[i], state.obstacles[j]);
         }
       }
     }
+
+    resolveTargetObstacleCollisions();
   }
 
   function updateArrows(dt) {
@@ -1823,36 +2231,12 @@
       state.shot.afterimageCooldown = 0.018;
     }
 
-    if (!state.shot.hitObstacle && state.arrows.active) {
-      const wall = state.arrows.active;
-      const dashSegmentEnd = { x: state.player.x, y: state.player.y };
-      const arrowDashHit = (
-        distanceSegmentToSegment(
-          previous,
-          dashSegmentEnd,
-          { x: wall.ax, y: wall.ay },
-          { x: wall.bx, y: wall.by },
-        ) <= (state.player.radius + wall.thickness)
-      );
-
-      if (arrowDashHit) {
-        const hitPoint = getActiveWallHitPoint(state.player);
-        handleArrowHit({
-          x: hitPoint.x,
-          y: hitPoint.y,
-        });
-        return;
-      }
-    }
-
-    if (!state.shot.sliced && !state.shot.hitObstacle) {
+    if (!state.shot.hitObstacle) {
       const dashEnd = { x: state.player.x, y: state.player.y };
       const events = [];
+      const eligibleTargets = state.targets.filter((target) => target.bornShotId !== state.shot.id);
 
-      const coreHit = detectCoreHit(previous, dashEnd);
-      if (coreHit) {
-        events.push({ type: "core", hit: coreHit });
-      }
+      events.push(...detectTargetHits(previous, dashEnd, eligibleTargets));
 
       if (state.run.obstacleUnlocked && state.obstacles.length) {
         const obstacleHit = detectObstacleHit(previous, dashEnd);
@@ -1861,8 +2245,13 @@
         }
       }
 
+      const wallHit = detectActiveWallHit(previous, dashEnd);
+      if (wallHit) {
+        events.push(wallHit);
+      }
+
       if (events.length) {
-        const priorities = { core: 0, obstacle: 1 };
+        const priorities = { target: 0, obstacle: 1, wall: 2 };
         events.sort((first, second) => {
           const delta = first.hit.t - second.hit.t;
           if (Math.abs(delta) > 0.0001) {
@@ -1871,14 +2260,26 @@
           return priorities[first.type] - priorities[second.type];
         });
 
-        const event = events[0];
-        if (event.type === "core") {
-          onCoreHit({
+        for (const event of events) {
+          if (event.type === "target") {
+            const target = findLiveTargetById(event.targetId);
+            if (!target || target.bornShotId === state.shot.id) {
+              continue;
+            }
+            onTargetHit(event.targetId, event.hit);
+            continue;
+          }
+
+          if (event.type === "obstacle") {
+            triggerObstacleBounce(event.hit);
+            break;
+          }
+
+          handleArrowHit({
             x: event.hit.contactX,
             y: event.hit.contactY,
           });
-        } else {
-          triggerObstacleBounce(event.hit);
+          break;
         }
       }
     }
@@ -1914,16 +2315,14 @@
   }
 
   function updateEffects(dt) {
-    state.core.pulse = Math.max(0, state.core.pulse - (dt * 3.6));
-    state.core.flash = Math.max(0, state.core.flash - (dt * 4.6));
-    if (state.core.sliceFx) {
-      const sliceFx = state.core.sliceFx;
-      sliceFx.time += dt;
-      if (sliceFx.time >= sliceFx.duration) {
-        emitCoreCollapseBurst(sliceFx);
-        state.core.sliceFx = null;
-      }
-    }
+    state.targets.forEach((target) => {
+      target.pulse = Math.max(0, target.pulse - (dt * 3.6));
+      target.flash = Math.max(0, target.flash - (dt * 4.6));
+    });
+    state.targetFx = state.targetFx.filter((fx) => {
+      fx.time += dt;
+      return fx.time < fx.duration;
+    });
     state.effects.shakeTime = Math.max(0, state.effects.shakeTime - dt);
 
     if (state.effects.shakeTime <= 0) {
@@ -1976,6 +2375,8 @@
       state.run.moveHintTime = Math.max(0, state.run.moveHintTime - dt);
     }
 
+    updateTargets(dt);
+
     if (state.run.timerStarted) {
       state.run.guideTime = Math.max(0, state.run.guideTime - dt);
     }
@@ -2008,14 +2409,14 @@
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
 
     ctx.save();
-    const core = state.core;
-    const visibleRadius = Math.max(core.radius, core.sliceFx?.fromRadius ?? 0);
+    const focus = getTargetVisualFocus();
+    const visibleRadius = getVisibleTargetRadius();
     const centerGlow = ctx.createRadialGradient(
-      core.x,
-      core.y - (visibleRadius * 0.2),
+      focus.x,
+      focus.y - (visibleRadius * 0.2),
       18,
-      core.x,
-      core.y,
+      focus.x,
+      focus.y,
       visibleRadius * 3.2,
     );
     centerGlow.addColorStop(0, "rgba(255, 255, 255, 0.62)");
@@ -2034,11 +2435,11 @@
     }
 
     const vignette = ctx.createRadialGradient(
-      core.x,
-      core.y,
+      focus.x,
+      focus.y,
       visibleRadius * 1.8,
-      core.x,
-      core.y,
+      focus.x,
+      focus.y,
       ARENA.width * 0.82,
     );
     vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
@@ -2089,8 +2490,8 @@
 
   function drawCoreOrb(x, y, radius, options = {}) {
     const comboBoost = options.comboBoost ?? state.effects.comboBoost;
-    const pulse = options.pulse ?? state.core.pulse;
-    const flash = options.flash ?? state.core.flash;
+    const pulse = options.pulse ?? 0;
+    const flash = options.flash ?? 0;
     const alpha = options.alpha ?? 1;
     const wobble = options.wobble ?? 0;
     const displayRadius = radius + wobble + (pulse * 6);
@@ -2172,36 +2573,17 @@
     ctx.clip();
   }
 
-  function drawCoreSliceEffect(timeMs, fx) {
+  function drawTargetSplitEffect(timeMs, fx) {
     const progress = clamp(fx.time / Math.max(0.0001, fx.duration), 0, 1);
     const eased = easeOutCubic(progress);
     const dir = normalize(fx.dirX, fx.dirY);
     const cutDir = (dir.x === 0 && dir.y === 0) ? { x: 1, y: 0 } : dir;
     const normal = { x: -cutDir.y, y: cutDir.x };
-    const revealStart = fx.respawns ? (CORE_RESPAWN_DELAY / fx.duration) : 0.04;
-    const revealProgress = clamp((progress - revealStart) / Math.max(0.0001, 1 - revealStart), 0, 1);
-    const revealEase = easeOutCubic(revealProgress);
-    const revealScale = lerp(fx.respawns ? 0.16 : 0.72, 1, revealEase);
-    const newCoreAlpha = fx.respawns ? revealProgress : lerp(0.38, 1, revealEase);
     const collapseProgress = clamp((progress - 0.18) / 0.82, 0, 1);
     const shellScale = lerp(1, 0.18, collapseProgress ** 2);
     const halfRadius = Math.max(8, fx.fromRadius * shellScale);
     const splitOffset = 12 + (fx.fromRadius * 0.24 * eased) + ((1 - shellScale) * fx.fromRadius * 0.08);
     const halfAlpha = clamp(1 - (progress * 0.96), 0, 1);
-
-    if (newCoreAlpha > 0.001) {
-      drawCoreOrb(
-        state.core.x,
-        state.core.y,
-        Math.max(8, state.core.radius * Math.max(0.2, revealScale)),
-        {
-          alpha: newCoreAlpha,
-          pulse: state.core.pulse * newCoreAlpha,
-          flash: state.core.flash * newCoreAlpha,
-          wobble: Math.sin(timeMs * 0.007) * 1.2 * newCoreAlpha,
-        },
-      );
-    }
 
     for (const sign of [-1, 1]) {
       ctx.save();
@@ -2213,8 +2595,8 @@
         sign,
       );
       drawCoreOrb(
-        state.core.x + (normal.x * splitOffset * sign),
-        state.core.y + (normal.y * splitOffset * sign),
+        fx.centerX + (normal.x * splitOffset * sign),
+        fx.centerY + (normal.y * splitOffset * sign),
         halfRadius,
         {
           alpha: halfAlpha,
@@ -2245,20 +2627,59 @@
     ctx.restore();
   }
 
-  function drawCoreTarget(timeMs) {
-    if (state.core.sliceFx) {
-      drawCoreSliceEffect(timeMs, state.core.sliceFx);
-      return;
-    }
+  function drawTargetBurstEffect(fx) {
+    const progress = clamp(fx.time / Math.max(0.0001, fx.duration), 0, 1);
+    const alpha = clamp(1 - progress, 0, 1);
+    const glowRadius = fx.baseRadius + (fx.baseRadius * 1.3 * easeOutCubic(progress));
+    const ringRadius = fx.baseRadius * 0.45 + (fx.baseRadius * 1.85 * progress);
 
-    drawCoreOrb(
-      state.core.x,
-      state.core.y,
-      state.core.radius,
-      {
-        wobble: Math.sin(timeMs * 0.007) * 1.6,
-      },
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const glow = ctx.createRadialGradient(
+      fx.x,
+      fx.y,
+      fx.baseRadius * 0.18,
+      fx.x,
+      fx.y,
+      glowRadius,
     );
+    glow.addColorStop(0, fx.glow);
+    glow.addColorStop(0.55, fx.glow);
+    glow.addColorStop(1, "rgba(255, 204, 136, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(fx.x, fx.y, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = fx.ring;
+    ctx.lineWidth = 3.2 - (progress * 1.6);
+    ctx.beginPath();
+    ctx.arc(fx.x, fx.y, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTargets(timeMs) {
+    state.targets
+      .slice()
+      .sort((first, second) => second.radius - first.radius)
+      .forEach((target) => {
+        drawCoreOrb(target.x, target.y, target.radius, {
+          pulse: target.pulse,
+          flash: target.flash,
+          wobble: Math.sin((timeMs * 0.007) + target.id) * 1.3,
+        });
+      });
+  }
+
+  function drawTargetFx(timeMs) {
+    state.targetFx.forEach((fx) => {
+      if (fx.type === "split") {
+        drawTargetSplitEffect(timeMs, fx);
+        return;
+      }
+      drawTargetBurstEffect(fx);
+    });
   }
 
   function drawPlayer() {
@@ -2373,7 +2794,12 @@
     }
 
     const player = state.player;
-    const guideDir = normalize(state.core.x - player.x, state.core.y - player.y);
+    const leadTarget = state.targets[0];
+    if (!leadTarget) {
+      return;
+    }
+
+    const guideDir = normalize(leadTarget.x - player.x, leadTarget.y - player.y);
     if (guideDir.x === 0 && guideDir.y === 0) {
       return;
     }
@@ -2382,7 +2808,7 @@
       { x: player.x, y: player.y },
       guideDir,
       state.player.radius,
-    ) ?? { x: state.core.x, y: state.core.y };
+    ) ?? { x: leadTarget.x, y: leadTarget.y };
     const alpha = state.run.timerStarted
       ? clamp(state.run.guideTime / 0.85, 0, 1)
       : 1;
@@ -2413,7 +2839,7 @@
 
     ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
     ctx.beginPath();
-    ctx.arc(state.core.x, state.core.y, Math.max(10, state.core.radius * 0.18) + (pulse * 5), 0, Math.PI * 2);
+    ctx.arc(leadTarget.x, leadTarget.y, Math.max(10, leadTarget.radius * 0.18) + (pulse * 5), 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "rgba(255, 174, 52, 0.98)";
@@ -2434,7 +2860,7 @@
     ctx.fillStyle = "rgba(106, 45, 6, 0.94)";
     ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
     ctx.textAlign = "center";
-    ctx.fillText("Hit the shrinking core", state.core.x, state.core.y - state.core.radius - 18);
+    ctx.fillText("Slice the target balls", leadTarget.x, leadTarget.y - leadTarget.radius - 18);
     ctx.restore();
   }
 
@@ -2812,7 +3238,8 @@
     }
 
     drawBackdrop(timeMs);
-    drawCoreTarget(timeMs);
+    drawTargets(timeMs);
+    drawTargetFx(timeMs);
     drawObstacles();
     drawArrows(timeMs);
     drawDashTrail();

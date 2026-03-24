@@ -4,7 +4,7 @@ Live demo: https://sliceballninja.netlify.app/
 
 ![platform](https://img.shields.io/badge/platform-web_mobile-f28c28) ![runtime](https://img.shields.io/badge/runtime-vanilla_js-f7df1e) ![status](https://img.shields.io/badge/status-playable-5cb85c)
 
-Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through a shrinking center core while spikes and temporary wall hazards force tighter decisions.
+Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through moving target balls while spikes and temporary wall hazards force tighter decisions.
 
 ## Quick Start
 
@@ -22,34 +22,35 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 
 - The attacker starts attached to an arena wall.
 - The timer does not begin until the first real dash.
-- Each clean hit on the center core gives `+1 score`, `+1 coin`, resets the timer, and reveals the next smaller target under the slice.
-- When the target reaches minimum size, it splits apart, disappears, and a fresh full-size core respawns.
-- Spikes and temporary wall hazards unlock later in the run and force misses if they connect before a successful core hit.
-
-## Controls
-
-- Touch anywhere on the arena and drag to choose a wall-to-wall dash.
-- Release to launch.
-- Reposition off the walls and aim through the center before the timer expires.
+- Each successful hit gives `+1 score`, `+1 coin`, increases combo, and resets the timer.
+- Large target balls split into two smaller moving children when sliced.
+- Minimum-size target balls explode instead of splitting.
+- When the board is cleared, a fresh full-size target ball respawns in the center with a larger burst.
+- One dash can slice multiple pre-existing target balls before a spike or temporary wall interrupts it.
 
 ## Physics Model
 
-- Core hits use swept circle collision, so high-speed dashes still register correctly.
-- Spike contact is resolved as an immediate rebound to the launch wall, and spikes are kept away from the visible target area.
-- Temporary wall hazards use line-segment collision instead of projectile motion.
-- Collision priority is based on earliest impact during the dash step instead of fixed check order.
+- Player hits use swept circle collision against every live target ball.
+- Newly created children are not hittable by the same dash that created them.
+- Spikes bounce physically with target balls instead of being forced away from them.
+- Target balls also bounce off each other and off the arena walls.
+- Temporary wall hazards are player-only blockers and do not affect target balls.
+
+## Visual Notes
+
+- The arena is a square playfield inside a portrait mobile layout.
+- Target splits leave a cut-shell effect on top of the newly spawned children.
+- Small target explosions use extra sparkles, embers, shards, glow rings, and screen feedback.
+- Low time heats up the map visually.
 
 ## Project Layout
 
 - `index.html`: portrait mobile shell, HUD, overlays
 - `styles.css`: wood/jungle UI styling and overlay presentation
 - `game.js`: active runtime, gameplay loop, rendering, collision handling, hazards
+- `GAME_OVERVIEW.txt`: rebuild-focused spec for recreating the current game
 - `src/`: older source files that are not the active runtime path for this build
 
-## Current Build Notes
+## Persistence
 
-- Arena is a square playfield inside a portrait layout.
-- The center target starts large, shrinks through layered slices, then respawns as a new orb after the minimum-size cut.
-- Difficulty ramps mainly through the shrinking core plus hazard unlocks rather than extra blocker pieces.
-- The first run includes a one-time reposition hint so players understand they can move to a different wall spot before attacking.
-- Coins, skins, best score, and tutorial flags persist in `localStorage`.
+- Coins, owned skins, selected skin, best score, tutorial flags, and screen shake settings persist in `localStorage`.
