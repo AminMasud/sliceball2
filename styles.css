@@ -289,6 +289,15 @@ body.ninja-vibe {
   transition: width 90ms linear, background 90ms linear;
 }
 
+body.classic-mode .time-value {
+  color: var(--wood);
+}
+
+body.classic-mode .time-value::before {
+  background: var(--lime);
+  box-shadow: 0 0 12px rgba(238, 254, 89, 0.36);
+}
+
 .arena-panel {
   display: grid;
 }
@@ -584,6 +593,51 @@ body.run-active .bottom-nav {
 .play-cta .material-symbols-outlined {
   font-size: 42px;
   color: var(--lime);
+}
+
+.mode-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  border-radius: 34px;
+  background: rgba(255, 255, 255, 0.54);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 32px rgba(90, 64, 56, 0.08);
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mode-button {
+  min-height: 54px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(49, 51, 47, 0.06);
+  color: var(--ink-soft);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.mode-button.is-selected {
+  background: linear-gradient(180deg, var(--lime) 0%, #efff6f 100%);
+  color: #485500;
+  box-shadow:
+    0 12px 22px rgba(220, 236, 74, 0.24),
+    inset 0 -2px 0 rgba(97, 104, 0, 0.16);
+}
+
+.mode-summary {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .menu-actions,

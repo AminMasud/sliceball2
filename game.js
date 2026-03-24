@@ -21,8 +21,8 @@
   const WALL_ACTIVE_DURATION = 2;
   const WALL_HALF_THICKNESS = 7;
   const PLAYER_RADIUS = 14;
-  const CORE_START_RADIUS = 60;
-  const CORE_MIN_RADIUS = 32;
+  const CORE_START_RADIUS = 52;
+  const CORE_MIN_RADIUS = 24;
   const CORE_SHRINK_PER_HIT = 14;
   const CORE_CLEARANCE_PADDING = 20;
   const CORE_SPEED_BASE = 62;
@@ -47,6 +47,10 @@
   const METEOR_TRAIL_COLOR = "rgba(255, 126, 76, 0.92)";
   const METEOR_CORE_COLOR = "rgba(255, 240, 205, 0.96)";
   const METEOR_IMPACT_COLOR = "rgba(255, 181, 128, 0.92)";
+  const GAME_MODES = Object.freeze({
+    TIMED: "timed",
+    CLASSIC: "classic",
+  });
 
   const SKINS = Object.freeze([
     {
@@ -137,8 +141,10 @@
     canvas: document.getElementById("gameCanvas"),
     comboValue: document.getElementById("comboValue"),
     scoreValue: document.getElementById("scoreValue"),
+    timerBlock: document.getElementById("timerBlock"),
     timeBarFill: document.getElementById("timeBarFill"),
     timeValue: document.getElementById("timeValue"),
+    timerCaption: document.getElementById("timerCaption"),
     topCoinText: document.getElementById("topCoinText"),
     bestStreakValue: document.getElementById("bestStreakValue"),
     energyDots: document.getElementById("energyDots"),
@@ -158,6 +164,10 @@
     recordScore: document.getElementById("recordScore"),
     recordBadge: document.getElementById("recordBadge"),
     playButton: document.getElementById("playButton"),
+    playButtonLabel: document.getElementById("playButtonLabel"),
+    classicModeButton: document.getElementById("classicModeButton"),
+    timedModeButton: document.getElementById("timedModeButton"),
+    modeSummary: document.getElementById("modeSummary"),
     shopButton: document.getElementById("shopButton"),
     optionsButton: document.getElementById("optionsButton"),
     hudMenuButton: document.getElementById("hudMenuButton"),
@@ -213,6 +223,7 @@
       dashParticlesEmitted: 0,
     },
     run: {
+      mode: GAME_MODES.TIMED,
       score: 0,
       combo: 0,
       bestCombo: 0,
@@ -257,6 +268,7 @@
   function loadProfile() {
     const defaults = {
       coins: 0,
+      selectedMode: GAME_MODES.TIMED,
       selectedSkin: SKINS[0].id,
       ownedSkins: { [SKINS[0].id]: true },
       records: {
@@ -316,6 +328,7 @@
 
       return {
         coins: Number.isFinite(parsed.coins) ? Math.max(0, Math.floor(parsed.coins)) : defaults.coins,
+        selectedMode: parsed.selectedMode === GAME_MODES.CLASSIC ? GAME_MODES.CLASSIC : GAME_MODES.TIMED,
         selectedSkin,
         ownedSkins,
         records: {
@@ -342,6 +355,25 @@
   }
 
   state.profile = loadProfile();
+  state.run.mode = state.profile.selectedMode;
+
+  function getSelectedMode() {
+    return state.profile.selectedMode === GAME_MODES.CLASSIC
+      ? GAME_MODES.CLASSIC
+      : GAME_MODES.TIMED;
+  }
+
+  function getCurrentMode() {
+    return state.inRun ? state.run.mode : getSelectedMode();
+  }
+
+  function isClassicMode(mode = getCurrentMode()) {
+    return mode === GAME_MODES.CLASSIC;
+  }
+
+  function isTimedMode(mode = getCurrentMode()) {
+    return mode === GAME_MODES.TIMED;
+  }
 
   function getSkinById(id) {
     return SKINS.find((skin) => skin.id === id) ?? SKINS[0];
@@ -709,6 +741,38 @@
 
   function syncRunChrome() {
     document.body.classList.toggle("run-active", state.inRun && state.overlay === "none");
+    updateModeUi();
+  }
+
+  function updateModeUi() {
+    const mode = getCurrentMode();
+    const classic = isClassicMode(mode);
+    document.body.classList.toggle("classic-mode", classic);
+
+    if (dom.classicModeButton) {
+      dom.classicModeButton.classList.toggle("is-selected", classic);
+    }
+    if (dom.timedModeButton) {
+      dom.timedModeButton.classList.toggle("is-selected", !classic);
+    }
+    if (dom.playButtonLabel) {
+      dom.playButtonLabel.textContent = classic ? "Play Classic" : "Play Timed";
+    }
+    if (dom.modeSummary) {
+      dom.modeSummary.textContent = classic
+        ? "Classic mode removes the timer and wall laser, and player dashes pass through spikes."
+        : "Timed mode keeps the timer, spikes, and wall laser active.";
+    }
+  }
+
+  function setSelectedMode(mode) {
+    state.profile.selectedMode = mode === GAME_MODES.CLASSIC ? GAME_MODES.CLASSIC : GAME_MODES.TIMED;
+    if (!state.inRun) {
+      state.run.mode = state.profile.selectedMode;
+    }
+    saveProfile();
+    syncRunChrome();
+    updateSliceTimerDisplay();
   }
 
   function updateCoinDisplays() {
@@ -743,6 +807,13 @@
 
     const dots = Array.from(dom.energyDots.querySelectorAll(".energy-dot"));
     if (dots.length === 0) {
+      return;
+    }
+
+    if (isClassicMode()) {
+      dots.forEach((dot) => {
+        dot.classList.add("is-on");
+      });
       return;
     }
 
@@ -781,6 +852,18 @@
 
   function updateSliceTimerDisplay() {
     if (!dom.timeBarFill || !dom.timeValue) {
+      return;
+    }
+
+    if (dom.timerCaption) {
+      dom.timerCaption.textContent = isClassicMode() ? "No Timer" : "Time Remaining";
+    }
+
+    if (isClassicMode()) {
+      dom.timeBarFill.style.width = "100%";
+      dom.timeBarFill.style.background = "linear-gradient(90deg, #8fd852, #eefe59)";
+      dom.timeValue.textContent = state.inRun && !state.run.timerStarted ? "Ready" : "Classic";
+      updateEnergyDots();
       return;
     }
 
@@ -1351,7 +1434,13 @@
     state.targets.forEach((target) => {
       target.prevX = target.x;
       target.prevY = target.y;
+    });
 
+    if (!state.run.timerStarted) {
+      return;
+    }
+
+    state.targets.forEach((target) => {
       if (Math.hypot(target.vx, target.vy) < 0.0001) {
         retuneTargetVelocity(target, true);
       } else {
@@ -1546,6 +1635,10 @@
   }
 
   function unlockArrowHazardsIfNeeded() {
+    if (!isTimedMode(state.run.mode)) {
+      return;
+    }
+
     if (state.arrows.unlocked || state.run.slices < WALL_UNLOCK_SLICES) {
       return;
     }
@@ -2003,8 +2096,9 @@
     }
   }
 
-  function startRun() {
+  function startRun(mode = getSelectedMode()) {
     state.inRun = true;
+    state.run.mode = mode === GAME_MODES.CLASSIC ? GAME_MODES.CLASSIC : GAME_MODES.TIMED;
     state.nextTargetId = 1;
     state.run.score = 0;
     state.run.combo = 0;
@@ -2062,11 +2156,14 @@
 
   function showMenu() {
     state.inRun = false;
+    state.run.mode = getSelectedMode();
     state.shot.active = false;
     state.aim.active = false;
     state.canShoot = false;
     state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
+    state.arrows.preview = null;
+    state.arrows.active = null;
     if (dom.recordBadge) {
       dom.recordBadge.classList.add("hidden");
     }
@@ -2131,6 +2228,7 @@
     state.shot.afterimageCooldown = 0;
     state.shot.dashParticlesEmitted = 0;
     state.canShoot = false;
+    updateSliceTimerDisplay();
   }
 
   function updateObstacles(dt) {
@@ -2182,7 +2280,7 @@
   }
 
   function updateArrows(dt) {
-    if (!state.inRun || !state.arrows.unlocked) {
+    if (!state.inRun || !isTimedMode(state.run.mode) || !state.arrows.unlocked) {
       return;
     }
 
@@ -2284,14 +2382,16 @@
 
       events.push(...detectTargetHits(previous, dashEnd, eligibleTargets));
 
-      if (state.run.obstacleUnlocked && state.obstacles.length) {
+      if (isTimedMode(state.run.mode) && state.run.obstacleUnlocked && state.obstacles.length) {
         const obstacleHit = detectObstacleHit(previous, dashEnd);
         if (obstacleHit) {
           events.push({ type: "obstacle", hit: obstacleHit });
         }
       }
 
-      const wallHit = detectActiveWallHit(previous, dashEnd);
+      const wallHit = isTimedMode(state.run.mode)
+        ? detectActiveWallHit(previous, dashEnd)
+        : null;
       if (wallHit) {
         events.push(wallHit);
       }
@@ -2404,6 +2504,7 @@
 
   function update(dt) {
     updateEffects(dt);
+    const timedRun = isTimedMode(state.run.mode);
 
     if (state.shot.cooldown > 0) {
       state.shot.cooldown = Math.max(0, state.shot.cooldown - dt);
@@ -2432,17 +2533,21 @@
       return;
     }
 
-    state.run.sliceTimer = Math.max(0, state.run.sliceTimer - dt);
-    updateSliceTimerDisplay();
-    if (state.run.sliceTimer <= 0) {
-      showBanner("TIME UP", "miss");
-      enterGameOver();
-      return;
+    if (timedRun) {
+      state.run.sliceTimer = Math.max(0, state.run.sliceTimer - dt);
+      updateSliceTimerDisplay();
+      if (state.run.sliceTimer <= 0) {
+        showBanner("TIME UP", "miss");
+        enterGameOver();
+        return;
+      }
     }
 
     updateObstacles(dt);
     updateShot(dt);
-    updateArrows(dt);
+    if (timedRun) {
+      updateArrows(dt);
+    }
     updateParticles(dt);
   }
 
@@ -2494,7 +2599,7 @@
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
 
     const timerRatio = clamp(state.run.sliceTimer / SLICE_TIMEOUT_SECONDS, 0, 1);
-    const heatLevel = state.inRun && state.run.timerStarted
+    const heatLevel = state.inRun && isTimedMode(state.run.mode) && state.run.timerStarted
       ? clamp((LOW_TIME_HEAT_THRESHOLD - timerRatio) / LOW_TIME_HEAT_THRESHOLD, 0, 1)
       : 0;
 
@@ -3410,6 +3515,10 @@
   }
 
   function drawArrows(timeMs) {
+    if (!isTimedMode()) {
+      return;
+    }
+
     drawArrowWarning(timeMs);
     drawActiveArrow(timeMs);
   }
@@ -3543,12 +3652,24 @@
   dom.canvas.addEventListener("pointerleave", releaseAim);
 
   dom.playButton.addEventListener("click", () => {
-    startRun();
+    startRun(getSelectedMode());
   });
 
   if (dom.hudMenuButton) {
     dom.hudMenuButton.addEventListener("click", () => {
       showMenu();
+    });
+  }
+
+  if (dom.classicModeButton) {
+    dom.classicModeButton.addEventListener("click", () => {
+      setSelectedMode(GAME_MODES.CLASSIC);
+    });
+  }
+
+  if (dom.timedModeButton) {
+    dom.timedModeButton.addEventListener("click", () => {
+      setSelectedMode(GAME_MODES.TIMED);
     });
   }
 
@@ -3576,7 +3697,7 @@
   });
 
   dom.restartButton.addEventListener("click", () => {
-    startRun();
+    startRun(state.run.mode);
   });
 
   dom.gameOverShopButton.addEventListener("click", () => {
@@ -3589,6 +3710,7 @@
 
   updateCoinDisplays();
   updateComboDisplay();
+  updateModeUi();
   updateSliceTimerDisplay();
   updateShakeToggle();
   buildShop();

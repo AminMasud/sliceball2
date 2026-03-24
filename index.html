@@ -33,10 +33,10 @@
         </div>
       </section>
 
-      <section class="timer-block">
+      <section id="timerBlock" class="timer-block">
         <div class="timer-head">
           <p id="timeValue" class="time-value">3.0s</p>
-          <p class="timer-caption">Time Remaining</p>
+          <p id="timerCaption" class="timer-caption">Time Remaining</p>
         </div>
         <div class="time-bar">
           <div id="timeBarFill" class="time-bar-fill"></div>
@@ -102,8 +102,17 @@
 
       <button id="playButton" class="play-cta" type="button">
         <span class="material-symbols-outlined">play_arrow</span>
-        <span>Play</span>
+        <span id="playButtonLabel">Play Timed</span>
       </button>
+
+      <section class="mode-panel">
+        <p class="overlay-kicker">Game Mode</p>
+        <div class="mode-switch">
+          <button id="classicModeButton" class="mode-button" type="button">Classic</button>
+          <button id="timedModeButton" class="mode-button" type="button">Timed</button>
+        </div>
+        <p id="modeSummary" class="mode-summary">Timed mode keeps the timer, spikes, and wall laser active.</p>
+      </section>
 
       <div class="menu-actions">
         <button id="shopButton" class="soft-action" type="button">

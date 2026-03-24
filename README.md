@@ -4,7 +4,7 @@ Live demo: https://sliceballninja.netlify.app/
 
 ![platform](https://img.shields.io/badge/platform-web_mobile-f28c28) ![runtime](https://img.shields.io/badge/runtime-vanilla_js-f7df1e) ![status](https://img.shields.io/badge/status-playable-5cb85c)
 
-Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through moving target balls while spikes and temporary wall hazards force tighter decisions.
+Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through moving target balls. It now ships with two rule sets: a relaxed Classic mode and the full Timed challenge mode.
 
 ## Quick Start
 
@@ -20,13 +20,17 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 
 ## Gameplay
 
+- Two modes are available from the main menu:
+  - `Classic`: no timer, no wall laser, and player dashes ignore spike collisions
+  - `Timed`: the current challenge mode with the timer, spike hits, and wall laser enabled
 - The attacker starts attached to an arena wall.
 - The timer does not begin until the first real dash.
-- Each successful hit gives `+1 score`, `+1 coin`, increases combo, and resets the timer.
+- Each successful hit gives `+1 score`, `+1 coin`, and increases combo.
+- In Timed mode, every successful hit also resets the timer.
 - Large target balls split into two smaller moving children when sliced.
 - Minimum-size target balls explode instead of splitting.
 - When the board is cleared, a fresh full-size target ball respawns in the center with a larger burst.
-- One dash can slice multiple pre-existing target balls before a spike or temporary wall interrupts it.
+- One dash can slice multiple pre-existing target balls before a hazard interrupts it.
 
 ## Physics Model
 
@@ -34,7 +38,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 - Newly created children are not hittable by the same dash that created them.
 - Spikes bounce physically with target balls instead of being forced away from them.
 - Target balls also bounce off each other and off the arena walls.
-- Temporary wall hazards are player-only blockers and do not affect target balls.
+- In Timed mode, temporary wall hazards are player-only blockers and do not affect target balls.
 
 ## Visual Notes
 
@@ -54,3 +58,4 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Persistence
 
 - Coins, owned skins, selected skin, best score, tutorial flags, and screen shake settings persist in `localStorage`.
+- The selected game mode also persists in `localStorage`.

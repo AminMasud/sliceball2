@@ -12,8 +12,8 @@ Purpose:
 - Platform target: mobile-first web game in portrait orientation
 - Tech: plain HTML, CSS, and vanilla JavaScript
 - Renderer: single 2D canvas for gameplay
-- Session flow: main menu -> run -> game over -> restart/menu/shop
-- Core fantasy: a player ball clings to the arena walls and slices through moving target balls before a short timer expires
+- Session flow: main menu -> choose Classic or Timed -> run -> timed game over or manual menu exit -> restart/menu/shop
+- Core fantasy: a player ball clings to the arena walls and slices through moving target balls under either a relaxed classic ruleset or the full timed challenge
 
 
 2) ACTIVE FILES
@@ -44,7 +44,8 @@ Purpose:
 - HUD outside the canvas:
   - score
   - combo
-  - timer bar and timer text
+  - timer bar and timer text in Timed mode
+  - a mode/status card in Classic mode using the same HUD slot
   - short tip copy
 - Overlays:
   - main menu
@@ -53,34 +54,54 @@ Purpose:
   - game over
 
 
-4) CORE GAME LOOP
+4) MODES
+- The menu exposes two selectable modes.
+- The selected mode persists between sessions.
+
+Classic mode:
+- no countdown timer
+- no temporary wall / laser hazard
+- player dashes ignore spike collisions
+- spikes can still move and affect target balls
+- there is no automatic game over condition
+
+Timed mode:
+- this is the current challenge mode
+- timer starts on the first real dash
+- every successful hit resets the timer to `3.0`
+- spike hits interrupt the player dash
+- temporary wall / laser hazard unlocks later in the run
+
+
+5) CORE GAME LOOP
 1. Start a run with one full-size target ball in the arena center.
-2. The target is already moving before the first dash.
+2. The target stays centered until the first dash begins.
 3. The player starts attached to the bottom wall.
 4. A tutorial line shows an opening path from the player through the first target.
-5. The timer does not start until the first real launch.
+5. In Timed mode, the timer does not start until the first real launch.
 6. Player swipes to dash from the current wall point to another wall point.
-7. During a dash, resolve all pre-existing target hits in path order until a spike or temporary wall interrupts the dash.
+7. During a dash, resolve all pre-existing target hits in path order until a mode-specific hazard interrupts the dash.
 8. Every successful hit:
    - `+1` score
    - `+1` coin
    - combo increment
-   - timer reset to `3.0`
+   - in Timed mode, timer reset to `3.0`
 9. Non-minimum targets split into two smaller moving children.
 10. Minimum-size targets explode and are removed.
 11. When the last live target is gone, spawn one new full-size target and continue the endless wave loop.
-12. Game over occurs immediately when the timer reaches `0`.
+12. In Timed mode, game over occurs immediately when the timer reaches `0`.
+13. In Classic mode, the run continues until the player leaves through the menu.
 
 
-5) CONSTANTS THAT DEFINE FEEL
+6) CONSTANTS THAT DEFINE FEEL
 - Arena size: `420 x 420`
 - Player radius: `14`
-- Timer duration: `3.0` seconds
+- Timer duration: `3.0` seconds in Timed mode only
 - Dash speed: `4800`
 - Dash duration clamp: `0.08` to `0.14`
 - Dash cooldown: `0.15`
-- Target start radius: `60`
-- Target minimum radius: `32`
+- Target start radius: `52`
+- Target minimum radius: `24`
 - Target shrink per split: `14`
 - Target movement speed:
   - base `62`
@@ -91,7 +112,7 @@ Purpose:
   - second at `25` hits
   - third at `60` hits
   - fourth at `100` hits
-- Temporary wall unlock:
+- Temporary wall unlock in Timed mode:
   - `85` hits
 - Temporary wall timings:
   - warning `0.78`
@@ -99,7 +120,7 @@ Purpose:
   - next delay random `1.9` to `3.8`
 
 
-6) PLAYER MODEL
+7) PLAYER MODEL
 - The player is a wall-bound ball while idle.
 - The player does not free-roam inside the arena.
 - Every move is a dash from one wall position to another wall position.
@@ -112,7 +133,7 @@ Purpose:
   - moving to a better wall spot before attacking is part of play
 
 
-7) TARGET SYSTEM
+8) TARGET SYSTEM
 - Live targets are stored as an array, not as one special center object.
 - Every target stores:
   - `id`
@@ -129,8 +150,8 @@ Wave lifecycle:
 - Wave start:
   - one full-size target
   - centered in arena
-  - random drift direction
-  - current size ladder is `60 -> 46 -> 32 -> explode on next hit`
+  - random drift direction is prepared but movement waits for the first dash
+  - current size ladder is `52 -> 38 -> 24 -> explode on next hit`
 - Successful hit on a non-minimum target:
   - remove the hit target
   - create two child targets
@@ -152,8 +173,9 @@ Shot gating:
 - They become hittable on later dashes.
 
 
-8) TARGET MOVEMENT AND PHYSICS
-- All live targets drift continuously while a run is active, even before the timer starts.
+9) TARGET MOVEMENT AND PHYSICS
+- Live targets stay centered until the first real dash starts the run timer.
+- After the first dash, all live targets drift continuously while the run is active.
 - Movement does not pause while split shell effects are active.
 - Target balls bounce off arena bounds.
 - Target balls bounce off each other using disc collision response.
@@ -165,22 +187,22 @@ Shot gating:
   - clamp discs back inside arena bounds
 
 
-9) PLAYER-HIT COLLISION RULES
+10) PLAYER-HIT COLLISION RULES
 - Player collision uses swept circle checks because both the player and targets move quickly.
 - For every dash frame:
   - collect target hit events for all eligible live targets
-  - collect the earliest spike hit
-  - collect the temporary wall hit if one exists
+  - in Timed mode, collect the earliest spike hit
+  - in Timed mode, collect the temporary wall hit if one exists
 - Sort by impact time `t`.
 - On ties, target hits win over hazards.
 - Process sorted events in order:
   - target hit -> split or explode target and continue
-  - spike hit -> bounce player back toward launch wall and stop the chain
-  - temporary wall hit -> same interruption behavior as a miss and stop the chain
+  - in Timed mode, spike hit -> bounce player back toward launch wall and stop the chain
+  - in Timed mode, temporary wall hit -> same interruption behavior as a miss and stop the chain
 - A dash can cut multiple pre-existing targets in one pass.
 
 
-10) TARGET FX MODEL
+11) TARGET FX MODEL
 - Transient target effects are stored separately from live targets.
 - Two effect families are required:
   - `split`
@@ -206,7 +228,7 @@ Explosion visual:
 - Board-clear respawn burst is larger than a regular small-target explosion.
 
 
-11) SPIKES
+12) SPIKES
 - Spikes are moving circular hazards rendered with spike teeth.
 - Count:
   - 0 before `10` successful hits
@@ -220,28 +242,33 @@ Explosion visual:
   - capped at `190`
 - Spikes bounce off walls, other spikes, and live target balls.
 - Spikes are no longer forced away from the target area.
-- If the player dash hits a spike before finishing its target chain:
+- In Timed mode, if the player dash hits a spike before finishing its target chain:
   - player rebounds toward launch wall
   - dash is treated as a miss
+- In Classic mode:
+  - spikes still move and collide with target balls
+  - the player dash ignores spike collisions completely
 
 
-12) TEMPORARY WALL HAZARD
+13) TEMPORARY WALL HAZARD
 - Unlocks at `85` successful hits.
 - Telegraph with a warning lane first.
 - Spawn as a glowing horizontal or vertical line segment.
 - This hazard affects only the player, not target balls.
+- This hazard exists only in Timed mode.
 - If the player intersects it during a dash:
   - the dash is interrupted
   - the player rebounds
   - the attempt is a miss
 
 
-13) SCORE, TIMER, COMBO, COINS
+14) SCORE, TIMER, COMBO, COINS
 Timer:
-- Starts only on first real dash
-- Resets to `3.0` on every successful split or explosion hit
-- Time out ends the run immediately
-- Low time heats up the map visually
+- Timed mode only
+- starts only on first real dash
+- resets to `3.0` on every successful split or explosion hit
+- time out ends the run immediately
+- low time heats up the map visually
 
 Score:
 - `+1` per successful target hit
@@ -256,7 +283,7 @@ Coins:
 - persisted between sessions
 
 
-14) ONBOARDING
+15) ONBOARDING
 Opening slice guide:
 - Visible only at the beginning of a run
 - Drawn from the player toward a valid wall destination through the lead target
@@ -268,7 +295,7 @@ One-time reposition hint:
 - Persisted in profile storage
 
 
-15) VISUAL STYLE
+16) VISUAL STYLE
 - Warm jungle / carved wood mobile arcade theme
 - Arena interior is bright and near-white
 - Target balls use layered warm radial gradients with aura, outline, and pulse ring
@@ -281,12 +308,13 @@ One-time reposition hint:
 - The low-time arena gets a heated shimmer treatment
 
 
-16) PERSISTENCE
+17) PERSISTENCE
 Storage key:
 - `lineSliceBallsEndlessSaveV1`
 
 Persisted profile fields:
 - `coins`
+- `selectedMode`
 - `selectedSkin`
 - `ownedSkins`
 - `records.bestScore`
@@ -298,15 +326,13 @@ Behavior:
 - update best score when a run ends
 
 
-17) SHOP AND COSMETICS
+18) SHOP AND COSMETICS
 - Skins are cosmetic only
 - Current roster:
-  - Neon Ninja: free
-  - Fire Ninja: `150`
-  - Water Ninja: `150`
-  - Lightning Ninja: `250`
-  - Earth Ninja: `250`
-  - Blossom Ninja: `300`
+  - Jade Striker: free
+  - Ember Core: `150`
+  - Chrome Drift: `150`
+  - Shadow Weaver: `250`
 - Skins affect:
   - player colors
   - glow
@@ -314,7 +340,7 @@ Behavior:
   - small silhouette accents
 
 
-18) RENDER ORDER
+19) RENDER ORDER
 1. arena background / glow / heat
 2. live target balls
 3. target split and burst effects
@@ -330,7 +356,7 @@ Behavior:
 13. DOM flash overlay and center banner outside canvas
 
 
-19) MAIN LOOP SHAPE
+20) MAIN LOOP SHAPE
 1. update target pulses/flashes and target FX timers
 2. update dash cooldown / canShoot
 3. if not in run:
@@ -343,36 +369,40 @@ Behavior:
 7. if timer not started:
    - update particles only
    - stop
-8. decrement survival timer
-9. if timer <= 0:
-   - show `TIME UP`
-   - enter game over
-   - stop
-10. update spikes and spike-target collisions
-11. update player dash and resolve sorted hit events
-12. update temporary wall system
-13. update particles
+8. if Timed mode:
+   - decrement survival timer
+   - if timer <= 0:
+     - show `TIME UP`
+     - enter game over
+     - stop
+9. update spikes and spike-target collisions
+10. update player dash and resolve sorted hit events
+11. if Timed mode:
+   - update temporary wall system
+12. update particles
 
 
-20) REBUILD CHECKLIST
+21) REBUILD CHECKLIST
 - portrait layout with square arena
-- one starting target that moves before the first dash
-- timer starts only on first launch
+- menu mode selector for Classic and Timed
+- one starting target that stays centered until the first dash
+- timer starts only on first launch in Timed mode
 - every non-minimum hit splits one target into two children
 - minimum-size targets explode instead of splitting
 - clearing all live targets respawns one full-size target with a bigger burst
 - one dash can cut multiple pre-existing targets
 - children created by the current dash cannot be hit again by that same dash
 - spikes bounce with targets
-- spikes still interrupt the player dash
-- temporary wall remains player-only
+- spikes interrupt the player dash only in Timed mode
+- temporary wall remains player-only and Timed-only
 - combo, score, timer, coins, record, shop, and options still work
-- low-time heat effect still works
+- low-time heat effect still works in Timed mode
+- Classic mode has no timer-based loss state
 
 
-21) WHAT MUST NOT HAPPEN
+22) WHAT MUST NOT HAPPEN
 - Do not restore the old defender-line / red-ball mechanic.
 - Do not bring back the flying-arrow hazard.
-- Do not start the timer before first launch.
+- Do not start the timer before first launch in Timed mode.
 - Do not let temporary walls affect target balls.
 - Do not make the game single-target again.
