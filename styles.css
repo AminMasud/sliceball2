@@ -162,6 +162,7 @@ body.ninja-vibe {
   display: flex;
   justify-content: center;
   padding: 76px 18px calc(116px + env(safe-area-inset-bottom));
+  transition: padding-bottom 180ms ease;
 }
 
 .game-card {
@@ -434,6 +435,17 @@ body.ninja-vibe {
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(18px);
   box-shadow: 0 -4px 24px rgba(52, 34, 28, 0.08);
+  transition: transform 220ms ease, opacity 180ms ease;
+}
+
+body.run-active .app-shell {
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+}
+
+body.run-active .bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(135%);
 }
 
 .nav-item {
@@ -730,6 +742,117 @@ body.ninja-vibe {
   border-radius: 50%;
   border: 10px solid rgba(255, 255, 255, 0.46);
   box-shadow: 0 14px 28px rgba(90, 64, 56, 0.12);
+  position: relative;
+  overflow: hidden;
+  background-color: #d9d8d2;
+}
+
+.swatch::before,
+.swatch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.swatch::before {
+  inset: 8px;
+}
+
+.swatch-jade {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(238, 254, 89, 0.85), rgba(238, 254, 89, 0.1) 57%, transparent 66%);
+  box-shadow:
+    0 0 0 4px rgba(221, 244, 84, 0.9),
+    0 14px 28px rgba(90, 64, 56, 0.14);
+}
+
+.swatch-jade::before {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(154, 199, 109, 0.9), transparent 18%),
+    radial-gradient(circle at 62% 66%, rgba(10, 30, 12, 0.96), transparent 58%),
+    radial-gradient(circle at 50% 46%, #35522f 0%, #20321c 52%, #0b120a 82%);
+}
+
+.swatch-jade::after {
+  inset: 18px;
+  opacity: 0.5;
+  background:
+    radial-gradient(circle at 42% 44%, transparent 0 16px, rgba(120, 159, 86, 0.55) 17px 19px, transparent 20px),
+    linear-gradient(132deg, transparent 22%, rgba(109, 154, 79, 0.45) 27%, transparent 34%, transparent 58%, rgba(65, 104, 47, 0.42) 63%, transparent 69%);
+  transform: rotate(-18deg);
+}
+
+.swatch-ember {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 143, 85, 0.38), transparent 62%);
+}
+
+.swatch-ember::before {
+  background:
+    radial-gradient(circle at 50% 50%, #4f5258 0%, #2d3036 62%, #111317 86%),
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.22), transparent 20%);
+}
+
+.swatch-ember::after {
+  inset: 16px;
+  background:
+    linear-gradient(25deg, transparent 0 22%, rgba(255, 120, 55, 0.95) 22% 25%, transparent 25% 46%, rgba(255, 168, 88, 0.92) 46% 50%, transparent 50% 100%),
+    linear-gradient(110deg, transparent 0 18%, rgba(255, 108, 44, 0.92) 18% 21%, transparent 21% 42%, rgba(255, 168, 88, 0.88) 42% 45%, transparent 45% 68%, rgba(255, 120, 55, 0.92) 68% 72%, transparent 72% 100%),
+    linear-gradient(155deg, transparent 0 26%, rgba(255, 120, 55, 0.88) 26% 30%, transparent 30% 56%, rgba(255, 173, 97, 0.86) 56% 60%, transparent 60% 100%);
+  mix-blend-mode: screen;
+}
+
+.swatch-chrome {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(79, 222, 255, 0.26), transparent 64%);
+}
+
+.swatch-chrome::before {
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.32), transparent 16%),
+    radial-gradient(circle at 50% 50%, #11151e 0%, #05070c 72%);
+}
+
+.swatch-chrome::after {
+  inset: 14px;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 26px, rgba(7, 10, 14, 0.94) 27px 100%),
+    linear-gradient(112deg, transparent 0 26%, rgba(73, 225, 255, 0.95) 27% 31%, transparent 32% 100%),
+    linear-gradient(128deg, transparent 0 42%, rgba(59, 198, 255, 0.92) 43% 47%, transparent 48% 100%),
+    linear-gradient(145deg, transparent 0 58%, rgba(158, 247, 255, 0.94) 59% 63%, transparent 64% 100%);
+}
+
+.swatch-shadow {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(161, 136, 255, 0.24), transparent 62%);
+}
+
+.swatch-shadow::before {
+  background:
+    radial-gradient(circle at 34% 30%, rgba(210, 200, 255, 0.18), transparent 14%),
+    radial-gradient(circle at 50% 50%, #353340 0%, #1e1d27 64%, #111017 84%);
+}
+
+.swatch-shadow::after {
+  inset: 14px;
+  background:
+    radial-gradient(circle at 50% 60%, rgba(118, 92, 190, 0.2), transparent 44%),
+    linear-gradient(120deg, transparent 0 36%, rgba(106, 90, 156, 0.52) 36% 42%, transparent 42% 100%);
+  filter: blur(1.4px);
+}
+
+.swatch-lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.74);
+  background: rgba(15, 17, 23, 0.2);
+}
+
+.swatch-lock .material-symbols-outlined {
+  font-size: 30px;
 }
 
 .shop-meta {

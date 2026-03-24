@@ -79,18 +79,20 @@ Purpose:
 - Dash speed: `4800`
 - Dash duration clamp: `0.08` to `0.14`
 - Dash cooldown: `0.15`
-- Target start radius: `74`
-- Target minimum radius: `24`
+- Target start radius: `60`
+- Target minimum radius: `32`
 - Target shrink per split: `14`
 - Target movement speed:
-  - base `68`
-  - grows by `1.1` per successful hit
-  - capped at `124`
+  - base `62`
+  - grows by `0.55` per successful hit
+  - capped at `104`
 - Spike unlocks:
-  - first at `5` hits
-  - second at `30` hits
+  - first at `10` hits
+  - second at `25` hits
+  - third at `60` hits
+  - fourth at `100` hits
 - Temporary wall unlock:
-  - `50` hits
+  - `85` hits
 - Temporary wall timings:
   - warning `0.78`
   - active `1.12`
@@ -128,6 +130,7 @@ Wave lifecycle:
   - one full-size target
   - centered in arena
   - random drift direction
+  - current size ladder is `60 -> 46 -> 32 -> explode on next hit`
 - Successful hit on a non-minimum target:
   - remove the hit target
   - create two child targets
@@ -151,7 +154,7 @@ Shot gating:
 
 8) TARGET MOVEMENT AND PHYSICS
 - All live targets drift continuously while a run is active, even before the timer starts.
-- Movement pauses while split shell effects are active so the cut stays readable.
+- Movement does not pause while split shell effects are active.
 - Target balls bounce off arena bounds.
 - Target balls bounce off each other using disc collision response.
 - Targets and spikes also bounce off each other using the same disc collision response.
@@ -206,13 +209,15 @@ Explosion visual:
 11) SPIKES
 - Spikes are moving circular hazards rendered with spike teeth.
 - Count:
-  - 0 before `5` successful hits
-  - 1 at `5`
-  - 2 at `30`
+  - 0 before `10` successful hits
+  - 1 at `10`
+  - 2 at `25`
+  - 3 at `60`
+  - 4 at `100`
 - Speed:
-  - base `80`
+  - base `76`
   - scales with difficulty
-  - capped at `230`
+  - capped at `190`
 - Spikes bounce off walls, other spikes, and live target balls.
 - Spikes are no longer forced away from the target area.
 - If the player dash hits a spike before finishing its target chain:
@@ -221,7 +226,7 @@ Explosion visual:
 
 
 12) TEMPORARY WALL HAZARD
-- Unlocks at `50` successful hits.
+- Unlocks at `85` successful hits.
 - Telegraph with a warning lane first.
 - Spawn as a glowing horizontal or vertical line segment.
 - This hazard affects only the player, not target balls.

@@ -9,26 +9,25 @@
   const STORAGE_KEY = "lineSliceBallsEndlessSaveV1";
   const SLICE_TIMEOUT_SECONDS = 3;
   const LOW_TIME_HEAT_THRESHOLD = 0.28;
-  const OBSTACLE_UNLOCK_SLICES = 5;
-  const SECOND_OBSTACLE_UNLOCK_SLICES = 30;
-  const WALL_UNLOCK_SLICES = 50;
+  const SPIKE_UNLOCK_SLICES = Object.freeze([10, 25, 60, 100]);
+  const WALL_UNLOCK_SLICES = 85;
   const SPIKE_MIN_SEPARATION = 160;
-  const SPIKE_SPEED_BASE = 80;
-  const SPIKE_SPEED_SCALE = 1.35;
-  const SPIKE_SPEED_MAX = 230;
+  const SPIKE_SPEED_BASE = 76;
+  const SPIKE_SPEED_SCALE = 0.7;
+  const SPIKE_SPEED_MAX = 190;
   const WALL_WARNING_DURATION = 0.78;
   const WALL_MIN_DELAY = 1.9;
   const WALL_MAX_DELAY = 3.8;
   const WALL_ACTIVE_DURATION = 1.12;
   const WALL_HALF_THICKNESS = 7;
   const PLAYER_RADIUS = 14;
-  const CORE_START_RADIUS = 74;
-  const CORE_MIN_RADIUS = 24;
+  const CORE_START_RADIUS = 60;
+  const CORE_MIN_RADIUS = 32;
   const CORE_SHRINK_PER_HIT = 14;
   const CORE_CLEARANCE_PADDING = 20;
-  const CORE_SPEED_BASE = 68;
-  const CORE_SPEED_SCALE = 1.1;
-  const CORE_SPEED_MAX = 124;
+  const CORE_SPEED_BASE = 62;
+  const CORE_SPEED_SCALE = 0.55;
+  const CORE_SPEED_MAX = 104;
   const CORE_SPLIT_DURATION = 0.46;
   const CORE_RESPAWN_DELAY = 0.2;
   const TARGET_SPLIT_PUSH = 32;
@@ -51,103 +50,87 @@
 
   const SKINS = Object.freeze([
     {
-      id: "neon_ninja",
-      name: "Neon Ninja",
-      theme: "Energy",
-      colorPrimary: "#3cff7c",
-      colorGlow: "rgba(166, 255, 188, 0.9)",
-      particleStyle: "sparkle",
+      id: "jade_striker",
+      name: "Jade Striker",
+      theme: "Wood Spirit",
+      rarity: "Legendary",
+      art: "jade",
+      colorPrimary: "#466a39",
+      colorGlow: "rgba(232, 255, 116, 0.92)",
+      particleStyle: "earth",
       unlockCost: 0,
-      colorSecondary: "#1fca5e",
-      outline: "#0f3d2a",
+      colorSecondary: "#142214",
+      outline: "#daf05f",
       eyeColor: "#effff5",
-      trailColor: "rgba(112, 255, 162, 0.9)",
-      accentA: "#bcffd2",
-      accentB: "#79efa8",
+      trailColor: "rgba(224, 255, 108, 0.88)",
+      accentA: "#8bb55f",
+      accentB: "#2d4625",
     },
     {
-      id: "fire_ninja",
-      name: "Fire Ninja",
-      theme: "Fire",
-      colorPrimary: "#ff6438",
-      colorGlow: "rgba(255, 164, 102, 0.9)",
+      id: "ember_core",
+      name: "Ember Core",
+      theme: "Thermal Burst",
+      rarity: "Rare",
+      art: "ember",
+      colorPrimary: "#ff7e3d",
+      colorGlow: "rgba(255, 156, 90, 0.94)",
       particleStyle: "fire",
       unlockCost: 150,
-      colorSecondary: "#d83a1e",
-      outline: "#5c2218",
+      colorSecondary: "#2f3338",
+      outline: "#7b848d",
       eyeColor: "#fff2cb",
-      trailColor: "rgba(255, 118, 76, 0.9)",
-      accentA: "#ffd18c",
-      accentB: "#ff8f55",
+      trailColor: "rgba(255, 124, 76, 0.92)",
+      accentA: "#ffd088",
+      accentB: "#ff6f38",
     },
     {
-      id: "water_ninja",
-      name: "Water Ninja",
-      theme: "Water",
-      colorPrimary: "#36aaff",
-      colorGlow: "rgba(128, 220, 255, 0.9)",
+      id: "chrome_drift",
+      name: "Chrome Drift",
+      theme: "Aero Core",
+      rarity: "Common",
+      art: "chrome",
+      colorPrimary: "#2bd5ff",
+      colorGlow: "rgba(126, 233, 255, 0.94)",
       particleStyle: "water",
       unlockCost: 150,
-      colorSecondary: "#1d74d8",
-      outline: "#144078",
+      colorSecondary: "#0a0f18",
+      outline: "#c9d2db",
       eyeColor: "#ecfbff",
-      trailColor: "rgba(118, 214, 255, 0.88)",
-      accentA: "#b2e8ff",
-      accentB: "#74cbff",
+      trailColor: "rgba(80, 219, 255, 0.9)",
+      accentA: "#d6fbff",
+      accentB: "#39c3ff",
     },
     {
-      id: "lightning_ninja",
-      name: "Lightning Ninja",
-      theme: "Lightning",
-      colorPrimary: "#303341",
-      colorGlow: "rgba(255, 228, 108, 0.95)",
-      particleStyle: "lightning",
-      unlockCost: 250,
-      colorSecondary: "#1f2230",
-      outline: "#0e1118",
-      eyeColor: "#fff8c5",
-      trailColor: "rgba(255, 225, 106, 0.92)",
-      accentA: "#ffe27e",
-      accentB: "#f6c83b",
-    },
-    {
-      id: "earth_ninja",
-      name: "Earth Ninja",
-      theme: "Earth",
-      colorPrimary: "#7e5b40",
-      colorGlow: "rgba(178, 142, 104, 0.86)",
-      particleStyle: "earth",
-      unlockCost: 250,
-      colorSecondary: "#5f432f",
-      outline: "#352619",
-      eyeColor: "#fff1df",
-      trailColor: "rgba(180, 145, 106, 0.88)",
-      accentA: "#6e9b56",
-      accentB: "#9e7c55",
-    },
-    {
-      id: "blossom_ninja",
-      name: "Blossom Ninja",
-      theme: "Blossom",
-      colorPrimary: "#ff82c0",
-      colorGlow: "rgba(255, 198, 227, 0.9)",
+      id: "shadow_weaver",
+      name: "Shadow Weaver",
+      theme: "Void Grip",
+      rarity: "Locked",
+      art: "shadow",
+      colorPrimary: "#8577c3",
+      colorGlow: "rgba(185, 162, 255, 0.9)",
       particleStyle: "blossom",
-      unlockCost: 300,
-      colorSecondary: "#db5ea1",
-      outline: "#6e2a4b",
-      eyeColor: "#fff2fb",
-      trailColor: "rgba(255, 183, 221, 0.9)",
-      accentA: "#ffd9ec",
-      accentB: "#ffc1de",
+      unlockCost: 250,
+      colorSecondary: "#1b1923",
+      outline: "#6d6790",
+      eyeColor: "#f0e8ff",
+      trailColor: "rgba(165, 136, 234, 0.88)",
+      accentA: "#cfc1ff",
+      accentB: "#6e5fa4",
     },
   ]);
 
   const LEGACY_SKIN_MAP = Object.freeze({
-    neon_blue: "neon_ninja",
-    lava_red: "fire_ninja",
-    gold: "earth_ninja",
-    plasma_purple: "blossom_ninja",
-    toxic_green: "lightning_ninja",
+    neon_ninja: "jade_striker",
+    fire_ninja: "ember_core",
+    water_ninja: "chrome_drift",
+    lightning_ninja: "shadow_weaver",
+    earth_ninja: "jade_striker",
+    blossom_ninja: "shadow_weaver",
+    neon_blue: "jade_striker",
+    lava_red: "ember_core",
+    gold: "jade_striker",
+    plasma_purple: "shadow_weaver",
+    toxic_green: "shadow_weaver",
   });
 
   const dom = {
@@ -721,6 +704,11 @@
     dom.shopOverlay.classList.toggle("hidden", name !== "shop");
     dom.optionsOverlay.classList.toggle("hidden", name !== "options");
     dom.gameOverOverlay.classList.toggle("hidden", name !== "gameover");
+    syncRunChrome();
+  }
+
+  function syncRunChrome() {
+    document.body.classList.toggle("run-active", state.inRun && state.overlay === "none");
   }
 
   function updateCoinDisplays() {
@@ -830,6 +818,17 @@
     }, 1000);
   }
 
+  function decorateShopSwatch(swatch, skin, owned) {
+    swatch.classList.add(`swatch-${skin.art}`);
+
+    if (!owned && skin.art === "shadow") {
+      const lock = document.createElement("div");
+      lock.className = "swatch-lock";
+      lock.innerHTML = '<span class="material-symbols-outlined">lock</span>';
+      swatch.append(lock);
+    }
+  }
+
   function buildShop() {
     dom.shopItems.innerHTML = "";
 
@@ -839,8 +838,6 @@
 
       const swatch = document.createElement("div");
       swatch.className = "swatch";
-      swatch.style.background = skin.colorPrimary;
-      swatch.style.boxShadow = `0 0 10px ${skin.colorGlow}`;
 
       const meta = document.createElement("div");
       meta.className = "shop-meta";
@@ -852,20 +849,21 @@
       const owned = Boolean(state.profile.ownedSkins[skin.id]);
       const equipped = state.profile.selectedSkin === skin.id;
       subtitle.textContent = skin.unlockCost === 0
-        ? `${skin.theme} | Starter`
-        : `${skin.theme} | ${skin.unlockCost} coins`;
+        ? `${skin.rarity} | ${skin.theme}`
+        : `${skin.rarity} | ${skin.unlockCost} coins`;
       meta.append(title, subtitle);
+      decorateShopSwatch(swatch, skin, owned);
 
       const action = document.createElement("button");
 
       if (equipped) {
-        action.textContent = "Equipped";
+        action.textContent = "Selected";
         action.className = "equipped";
         action.disabled = true;
       } else if (owned) {
-        action.textContent = "Select";
+        action.textContent = "Equip Hero";
       } else {
-        action.textContent = `${skin.unlockCost} Coins`;
+        action.textContent = `Unlock ${skin.unlockCost}`;
         action.className = "locked";
       }
 
@@ -1453,20 +1451,28 @@
   }
 
   function unlockObstaclesIfNeeded() {
-    if (state.run.slices >= OBSTACLE_UNLOCK_SLICES && state.obstacles.length === 0) {
-      state.run.obstacleUnlocked = true;
-      state.obstacles.push(createObstacle(0, []));
-      showBanner("SPIKE ONLINE", "warn");
-    }
+    const spikeMessages = [
+      "SPIKE ONLINE",
+      "DOUBLE SPIKES",
+      "TRIPLE SPIKES",
+      "SPIKE SWARM",
+    ];
 
-    if (state.run.slices >= SECOND_OBSTACLE_UNLOCK_SLICES && state.obstacles.length === 1) {
-      state.obstacles.push(createObstacle(1, state.obstacles));
-      showBanner("DOUBLE SPIKES", "warn");
+    while (
+      state.obstacles.length < SPIKE_UNLOCK_SLICES.length &&
+      state.run.slices >= SPIKE_UNLOCK_SLICES[state.obstacles.length]
+    ) {
+      state.run.obstacleUnlocked = true;
+      state.obstacles.push(createObstacle(state.obstacles.length, state.obstacles));
+      showBanner(
+        spikeMessages[state.obstacles.length - 1] ?? `SPIKES x${state.obstacles.length}`,
+        "warn",
+      );
     }
   }
 
   function nextArrowDelay() {
-    const pressure = Math.min(1.25, state.run.slices * 0.009);
+    const pressure = Math.min(1.1, state.run.slices * 0.006);
     const minDelay = Math.max(0.95, WALL_MIN_DELAY - (pressure * 0.4));
     const maxDelay = Math.max(minDelay + 0.25, WALL_MAX_DELAY - pressure);
     return random(minDelay, maxDelay);
@@ -2722,6 +2728,182 @@
     });
   }
 
+  function tracePlayerEllipse(player, radiusX, radiusY) {
+    ctx.beginPath();
+    ctx.ellipse(player.x, player.y, radiusX, radiusY, 0, 0, Math.PI * 2);
+  }
+
+  function fillPlayerEllipse(player, radiusX, radiusY, fillStyle) {
+    ctx.fillStyle = fillStyle;
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.fill();
+  }
+
+  function strokePlayerEllipse(player, radiusX, radiusY, strokeStyle, lineWidth) {
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.stroke();
+  }
+
+  function drawJadePlayerSkin(player, radiusX, radiusY, skin) {
+    const jade = ctx.createRadialGradient(
+      player.x - (radiusX * 0.34),
+      player.y - (radiusY * 0.42),
+      player.radius * 0.2,
+      player.x,
+      player.y,
+      player.radius * 1.12,
+    );
+    jade.addColorStop(0, "#a0c869");
+    jade.addColorStop(0.22, skin.accentA);
+    jade.addColorStop(0.56, skin.colorPrimary);
+    jade.addColorStop(1, skin.colorSecondary);
+    fillPlayerEllipse(player, radiusX, radiusY, jade);
+
+    ctx.save();
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.clip();
+    ctx.globalAlpha = 0.34;
+    ctx.strokeStyle = "rgba(196, 232, 109, 0.5)";
+    ctx.lineWidth = 2.1;
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(player.x - (radiusX * 0.78), player.y + (i * radiusY * 0.3));
+      ctx.bezierCurveTo(
+        player.x - (radiusX * 0.24),
+        player.y - (radiusY * (0.56 - (i * 0.08))),
+        player.x + (radiusX * 0.14),
+        player.y + (radiusY * (0.18 + (i * 0.16))),
+        player.x + (radiusX * 0.7),
+        player.y - (radiusY * (0.42 - (i * 0.08))),
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.globalAlpha = 0.16;
+    fillPlayerEllipse(
+      { x: player.x - (radiusX * 0.16), y: player.y - (radiusY * 0.22), radius: player.radius },
+      radiusX * 0.3,
+      radiusY * 0.2,
+      "rgba(255, 255, 250, 0.9)",
+    );
+    ctx.globalAlpha = 1;
+  }
+
+  function drawEmberPlayerSkin(player, radiusX, radiusY, skin) {
+    const lava = ctx.createRadialGradient(
+      player.x - (radiusX * 0.26),
+      player.y - (radiusY * 0.3),
+      player.radius * 0.18,
+      player.x,
+      player.y,
+      player.radius * 1.1,
+    );
+    lava.addColorStop(0, "#666a71");
+    lava.addColorStop(0.4, "#343841");
+    lava.addColorStop(1, "#14181e");
+    fillPlayerEllipse(player, radiusX, radiusY, lava);
+
+    ctx.save();
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.clip();
+    ctx.shadowColor = skin.colorGlow;
+    ctx.shadowBlur = 10;
+    ctx.lineCap = "round";
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.strokeStyle = i === 0 ? "#ffc469" : "#ff7b39";
+      ctx.lineWidth = i === 0 ? 2.4 : 1.4;
+      ctx.beginPath();
+      ctx.moveTo(player.x - (radiusX * 0.76), player.y + (i * radiusY * 0.26));
+      ctx.lineTo(player.x - (radiusX * 0.18), player.y + (i * radiusY * 0.12));
+      ctx.lineTo(player.x + (radiusX * 0.06), player.y - (radiusY * (0.36 + (i * 0.06))));
+      ctx.lineTo(player.x + (radiusX * 0.46), player.y - (radiusY * (0.08 - (i * 0.14))));
+      ctx.lineTo(player.x + (radiusX * 0.78), player.y - (radiusY * (0.44 - (i * 0.09))));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawChromePlayerSkin(player, radiusX, radiusY, skin) {
+    const chrome = ctx.createRadialGradient(
+      player.x - (radiusX * 0.32),
+      player.y - (radiusY * 0.42),
+      player.radius * 0.12,
+      player.x,
+      player.y,
+      player.radius * 1.15,
+    );
+    chrome.addColorStop(0, "#ecf4fb");
+    chrome.addColorStop(0.2, "#4b535e");
+    chrome.addColorStop(0.42, "#131924");
+    chrome.addColorStop(1, "#04070c");
+    fillPlayerEllipse(player, radiusX, radiusY, chrome);
+
+    ctx.save();
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.clip();
+    ctx.lineCap = "round";
+    ctx.shadowColor = skin.colorGlow;
+    ctx.shadowBlur = 12;
+    const stripeOffsets = [-0.18, 0.05, 0.28];
+    stripeOffsets.forEach((offset, index) => {
+      ctx.strokeStyle = index === 1 ? "#aff8ff" : skin.colorPrimary;
+      ctx.lineWidth = index === 1 ? 4.4 : 3.1;
+      ctx.beginPath();
+      ctx.moveTo(player.x - (radiusX * 0.72), player.y + (radiusY * offset));
+      ctx.bezierCurveTo(
+        player.x - (radiusX * 0.28),
+        player.y + (radiusY * (offset - 0.24)),
+        player.x + (radiusX * 0.22),
+        player.y + (radiusY * (offset + 0.14)),
+        player.x + (radiusX * 0.74),
+        player.y + (radiusY * (offset - 0.12)),
+      );
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function drawShadowPlayerSkin(player, radiusX, radiusY, skin, timeMs) {
+    const shadow = ctx.createRadialGradient(
+      player.x - (radiusX * 0.26),
+      player.y - (radiusY * 0.32),
+      player.radius * 0.12,
+      player.x,
+      player.y,
+      player.radius * 1.15,
+    );
+    shadow.addColorStop(0, "#a88bff");
+    shadow.addColorStop(0.16, "#65589d");
+    shadow.addColorStop(0.46, "#2f2b41");
+    shadow.addColorStop(1, "#15131b");
+    fillPlayerEllipse(player, radiusX, radiusY, shadow);
+
+    ctx.save();
+    tracePlayerEllipse(player, radiusX, radiusY);
+    ctx.clip();
+    ctx.globalAlpha = 0.34;
+    ctx.strokeStyle = "rgba(212, 196, 255, 0.52)";
+    ctx.lineWidth = 2.2;
+    for (let i = 0; i < 3; i += 1) {
+      const wave = Math.sin((timeMs * 0.006) + i) * 0.16;
+      ctx.beginPath();
+      ctx.moveTo(player.x - (radiusX * 0.72), player.y + (radiusY * (-0.22 + (i * 0.2))));
+      ctx.bezierCurveTo(
+        player.x - (radiusX * 0.18),
+        player.y - (radiusY * (0.5 - wave - (i * 0.06))),
+        player.x + (radiusX * 0.18),
+        player.y + (radiusY * (0.42 + wave)),
+        player.x + (radiusX * 0.74),
+        player.y - (radiusY * (0.18 - (i * 0.14))),
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawPlayer() {
     const skin = getActiveSkin();
     const player = state.player;
@@ -2742,38 +2924,43 @@
     ctx.arc(player.x, player.y, auraRadius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha = 1;
-
-    const gradient = ctx.createRadialGradient(
-      player.x - (radiusX * 0.4),
-      player.y - (radiusY * 0.5),
-      player.radius * 0.2,
-      player.x,
-      player.y,
-      player.radius * 1.15,
-    );
-    gradient.addColorStop(0, "#fffefb");
-    gradient.addColorStop(0.18, skin.accentA);
-    gradient.addColorStop(0.62, skin.colorPrimary);
-    gradient.addColorStop(1, skin.colorSecondary);
-    ctx.fillStyle = gradient;
     ctx.shadowColor = skin.colorGlow;
     ctx.shadowBlur = 16 + (comboBoost * 7);
-    ctx.beginPath();
-    ctx.ellipse(player.x, player.y, radiusX, radiusY, 0, 0, Math.PI * 2);
-    ctx.fill();
+
+    if (skin.art === "jade") {
+      drawJadePlayerSkin(player, radiusX, radiusY, skin);
+    } else if (skin.art === "ember") {
+      drawEmberPlayerSkin(player, radiusX, radiusY, skin);
+    } else if (skin.art === "chrome") {
+      drawChromePlayerSkin(player, radiusX, radiusY, skin);
+    } else if (skin.art === "shadow") {
+      drawShadowPlayerSkin(player, radiusX, radiusY, skin, timeMs);
+    } else {
+      const gradient = ctx.createRadialGradient(
+        player.x - (radiusX * 0.4),
+        player.y - (radiusY * 0.5),
+        player.radius * 0.2,
+        player.x,
+        player.y,
+        player.radius * 1.15,
+      );
+      gradient.addColorStop(0, "#fffefb");
+      gradient.addColorStop(0.18, skin.accentA);
+      gradient.addColorStop(0.62, skin.colorPrimary);
+      gradient.addColorStop(1, skin.colorSecondary);
+      fillPlayerEllipse(player, radiusX, radiusY, gradient);
+    }
 
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = skin.outline;
-    ctx.lineWidth = 2.6;
-    ctx.beginPath();
-    ctx.ellipse(player.x, player.y, radiusX, radiusY, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    strokePlayerEllipse(player, radiusX, radiusY, skin.outline, 2.6);
 
     ctx.globalAlpha = 0.18;
-    ctx.fillStyle = skin.accentA;
-    ctx.beginPath();
-    ctx.ellipse(player.x - (radiusX * 0.22), player.y - (radiusY * 0.26), radiusX * 0.34, radiusY * 0.24, -0.35, 0, Math.PI * 2);
-    ctx.fill();
+    fillPlayerEllipse(
+      { x: player.x - (radiusX * 0.22), y: player.y - (radiusY * 0.26), radius: player.radius },
+      radiusX * 0.34,
+      radiusY * 0.24,
+      skin.art === "chrome" ? "#ffffff" : skin.accentA,
+    );
     ctx.globalAlpha = 1;
 
     ctx.restore();
