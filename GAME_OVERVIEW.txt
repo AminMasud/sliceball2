@@ -61,9 +61,12 @@ Purpose:
 Classic mode:
 - no countdown timer
 - no temporary wall / laser hazard
+- one spike starts active immediately
 - player loses the run on spike contact
 - spikes can still move and affect target balls
 - spikes unlock earlier than in Timed mode
+- spike death freezes the game immediately on impact
+- before the overlay appears, a `3.0` second slow zoom focuses on the glued player/spike collision
 
 Timed mode:
 - this is the current challenge mode
@@ -90,7 +93,7 @@ Timed mode:
 10. Minimum-size targets explode and are removed.
 11. When the last live target is gone, spawn one new full-size target and continue the endless wave loop.
 12. In Timed mode, game over occurs immediately when the timer reaches `0`.
-13. In Classic mode, game over occurs on spike contact instead of on a timer.
+13. In Classic mode, spike contact immediately freezes gameplay, then a slow proof zoom plays before the game-over overlay appears.
 
 
 6) CONSTANTS THAT DEFINE FEEL
@@ -113,10 +116,13 @@ Timed mode:
   - third at `60` hits
   - fourth at `100` hits
 - Classic spike unlocks:
-  - first at `5` hits
+  - one spike active at run start
   - second at `15` hits
   - third at `35` hits
   - fourth at `70` hits
+- Classic spike death zoom:
+  - duration `3.0`
+  - scale target `1.55`
 - Temporary wall unlock in Timed mode:
   - `85` hits
 - Temporary wall timings:
@@ -203,7 +209,7 @@ Shot gating:
 - Process sorted events in order:
   - target hit -> split or explode target and continue
   - in Timed mode, spike hit -> bounce player back toward launch wall and stop the chain
-  - in Classic mode, spike hit -> end the run immediately
+  - in Classic mode, spike hit -> freeze gameplay immediately, glue player to the hit spike, and start the proof zoom
   - in Timed mode, temporary wall hit -> same interruption behavior as a miss and stop the chain
 - A dash can cut multiple pre-existing targets in one pass.
 
@@ -252,9 +258,12 @@ Explosion visual:
   - player rebounds toward launch wall
   - dash is treated as a miss
 - In Classic mode:
+  - one spike is present from the start of the run
   - spikes still move and collide with target balls
-  - player spike contact ends the run immediately
-  - spike unlock thresholds are earlier than in Timed mode
+  - player spike contact starts a frozen proof frame immediately
+  - the player is visually glued to the hit spike using the collision normal and hit point
+  - the frame marks the exact spike hit location before the overlay appears
+  - additional spikes unlock earlier than in Timed mode
 
 
 13) TEMPORARY WALL HAZARD
@@ -294,6 +303,8 @@ Coins:
 Opening slice guide:
 - Visible only at the beginning of a run
 - Drawn from the player toward a valid wall destination through the lead target
+- Uses the copy `Tap to slice`
+- Does not use an arrowhead at the destination
 - Hidden on first real launch or after the guide timer fades
 
 One-time reposition hint:
@@ -315,6 +326,10 @@ One-time reposition hint:
   - afterimages
   - wall attach pulses
   - warped center banners like `HIT!`, `TIME UP`, `NINJA SKILLS`
+- Classic death proof frame:
+  - sticky bridge between player and spike hit point
+  - hit marker and `SPIKE HIT` label
+  - slow zoom centered on the player
 - The low-time arena gets a heated shimmer treatment
 
 
@@ -390,9 +405,13 @@ Behavior:
      - stop
 9. update spikes and spike-target collisions
 10. update player dash and resolve sorted hit events
-11. if Timed mode:
+11. if classic spike proof zoom is active:
+   - freeze gameplay state
+   - advance only the zoom timer
+   - enter game over when the zoom completes
+12. if Timed mode:
    - update temporary wall system
-12. update particles
+13. update particles
 
 
 21) REBUILD CHECKLIST
@@ -406,12 +425,12 @@ Behavior:
 - one dash can cut multiple pre-existing targets
 - children created by the current dash cannot be hit again by that same dash
 - spikes bounce with targets
-- spikes interrupt the player dash in Timed mode and end the run in Classic mode
+- spikes interrupt the player dash in Timed mode and trigger the frozen proof zoom in Classic mode
 - temporary wall remains player-only and Timed-only
 - combo, score, timer, coins, record, shop, and options still work
 - daily reward card can be claimed once per day
 - low-time heat effect still works in Timed mode
-- Classic mode has no timer-based loss state and instead loses on spike contact
+- Classic mode has no timer-based loss state and instead loses on spike contact with a glued proof frame and slow zoom
 
 
 22) WHAT MUST NOT HAPPEN

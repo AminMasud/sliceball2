@@ -21,7 +21,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Gameplay
 
 - Two modes are available from the main menu:
-  - `Classic`: no timer, no wall laser, earlier spike spawns, and spike hits end the run
+  - `Classic`: no timer, no wall laser, one spike starts active by default, and spike hits end the run
   - `Timed`: the current challenge mode with the timer, spike hits, and wall laser enabled
 - The attacker starts attached to an arena wall.
 - The timer does not begin until the first real dash.
@@ -39,6 +39,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 - Spikes bounce physically with target balls instead of being forced away from them.
 - Target balls also bounce off each other and off the arena walls.
 - In Timed mode, temporary wall hazards are player-only blockers and do not affect target balls.
+- In Classic mode, spike death freezes immediately on contact instead of letting the dash finish.
 
 ## Visual Notes
 
@@ -46,6 +47,8 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 - Smaller target stages shift into new color palettes so they read clearly at a glance.
 - Target splits leave a cut-shell effect on top of the newly spawned children.
 - Small target explosions use extra sparkles, embers, shards, glow rings, and screen feedback.
+- The opening guide reads `Tap to slice` and uses a clean guide line without a starting arrowhead.
+- Classic spike deaths use a proof frame: the player is glued to the hit spike, the exact hit point is marked, and the camera slowly zooms in before the game-over overlay appears.
 - Low time heats up the map visually.
 
 ## Project Layout

@@ -10,7 +10,7 @@
   const SLICE_TIMEOUT_SECONDS = 3;
   const LOW_TIME_HEAT_THRESHOLD = 0.28;
   const SPIKE_UNLOCK_SLICES = Object.freeze([10, 25, 60, 100]);
-  const CLASSIC_SPIKE_UNLOCK_SLICES = Object.freeze([5, 15, 35, 70]);
+  const CLASSIC_SPIKE_UNLOCK_SLICES = Object.freeze([0, 15, 35, 70]);
   const WALL_UNLOCK_SLICES = 85;
   const DAILY_REWARD_COINS = 50;
   const SPIKE_MIN_SEPARATION = 160;
@@ -22,6 +22,8 @@
   const WALL_MAX_DELAY = 3.8;
   const WALL_ACTIVE_DURATION = 2;
   const WALL_HALF_THICKNESS = 7;
+  const CLASSIC_SPIKE_ZOOM_DURATION = 3;
+  const CLASSIC_SPIKE_ZOOM_SCALE = 1.55;
   const PLAYER_RADIUS = 14;
   const CORE_START_RADIUS = 52;
   const CORE_MIN_RADIUS = 24;
@@ -216,6 +218,8 @@
       active: false,
       sliced: false,
       hitObstacle: false,
+      targetsHit: 0,
+      tripleSliceFeedbackPlayed: false,
       startX: 0,
       startY: 0,
       endX: 0,
@@ -262,6 +266,14 @@
       comboBoost: 0,
       shakeTime: 0,
       shakeStrength: 0,
+      classicSpikeZoomTime: 0,
+      classicSpikeZoomDuration: 0,
+      classicSpikeZoomX: ARENA.width / 2,
+      classicSpikeZoomY: ARENA.height / 2,
+      classicSpikeImpactX: ARENA.width / 2,
+      classicSpikeImpactY: ARENA.height / 2,
+      classicSpikeZoomObstacleIndex: -1,
+      classicSpikeZoomPendingGameOver: false,
       flashTime: 0,
       flashDuration: 0,
       flashColor: "rgba(255, 255, 255, 0.4)",
@@ -430,7 +442,6 @@
     saveProfile();
     updateCoinDisplays();
     updateDailyRewardUi();
-    triggerHaptic(45);
     showBanner(`+${DAILY_REWARD_COINS} COINS`, "slice");
   }
 
@@ -450,6 +461,71 @@
 
   function getSpikeUnlockSlices(mode = state.run.mode) {
     return isClassicMode(mode) ? CLASSIC_SPIKE_UNLOCK_SLICES : SPIKE_UNLOCK_SLICES;
+  }
+
+  function isClassicSpikeZoomActive() {
+    return state.effects.classicSpikeZoomTime > 0;
+  }
+
+  function getClassicSpikeZoomState() {
+    if (!isClassicSpikeZoomActive()) {
+      return null;
+    }
+
+    const ratio = state.effects.classicSpikeZoomDuration > 0
+      ? 1 - (state.effects.classicSpikeZoomTime / state.effects.classicSpikeZoomDuration)
+      : 1;
+    const eased = easeInSine(clamp(ratio, 0, 1));
+    return {
+      scale: lerp(1, CLASSIC_SPIKE_ZOOM_SCALE, eased),
+      x: state.effects.classicSpikeZoomX,
+      y: state.effects.classicSpikeZoomY,
+    };
+  }
+
+  function triggerTripleSliceFeedback() {
+    triggerWholeScreenVibration();
+    triggerHaptic([45, 24, 90]);
+  }
+
+  function startClassicSpikeImpactZoom(hit) {
+    const anchorDistance = Math.max(
+      state.player.radius,
+      (hit.obstacleRadius ?? 0) + state.player.radius + 11,
+    );
+    state.shot.active = false;
+    state.shot.sliced = false;
+    state.shot.hitObstacle = true;
+    state.shot.elapsed = 0;
+    state.shot.duration = 0;
+    state.shot.cooldown = 0;
+    state.shot.targetsHit = 0;
+    state.shot.tripleSliceFeedbackPlayed = false;
+    state.canShoot = false;
+    state.aim.active = false;
+    state.aim.pointerId = null;
+    state.aim.target = null;
+    state.player.x = hit.centerX + (hit.normalX * anchorDistance);
+    state.player.y = hit.centerY + (hit.normalY * anchorDistance);
+    state.player.vx = 0;
+    state.player.vy = 0;
+    state.dashTrail.length = 0;
+    state.afterimages.length = 0;
+    state.attachPulses.length = 0;
+    state.particles.length = 0;
+    state.targetFx = [];
+    state.effects.shakeTime = 0;
+    state.effects.shakeStrength = 0;
+    state.effects.flashTime = 0;
+    dom.screenFlash.style.opacity = "0";
+    state.effects.classicSpikeZoomTime = CLASSIC_SPIKE_ZOOM_DURATION;
+    state.effects.classicSpikeZoomDuration = CLASSIC_SPIKE_ZOOM_DURATION;
+    state.effects.classicSpikeZoomX = state.player.x;
+    state.effects.classicSpikeZoomY = state.player.y;
+    state.effects.classicSpikeImpactX = hit.contactX;
+    state.effects.classicSpikeImpactY = hit.contactY;
+    state.effects.classicSpikeZoomObstacleIndex = hit.obstacleIndex ?? -1;
+    state.effects.classicSpikeZoomPendingGameOver = true;
   }
 
   function getSkinById(id) {
@@ -749,6 +825,19 @@
   function easeOutCubic(t) {
     const clamped = clamp(t, 0, 1);
     return 1 - ((1 - clamped) ** 3);
+  }
+
+  function easeInSine(t) {
+    const clamped = clamp(t, 0, 1);
+    return 1 - Math.cos((clamped * Math.PI) / 2);
+  }
+
+  function easeInOutCubic(t) {
+    const clamped = clamp(t, 0, 1);
+    if (clamped < 0.5) {
+      return 4 * (clamped ** 3);
+    }
+    return 1 - (((-2 * clamped) + 2) ** 3) / 2;
   }
 
   function sweepCircleCollision(startA, endA, radiusA, startB, endB, radiusB) {
@@ -1115,13 +1204,11 @@
     window.setTimeout(() => {
       document.body.classList.remove("ninja-vibe");
     }, 370);
-    triggerHaptic([65, 45, 65]);
   }
 
   function triggerNinjaSkills() {
     triggerShake(0.42, 15);
     triggerFlash("rgba(120, 233, 255, 0.7)", 1, 0.2);
-    triggerWholeScreenVibration();
     showBanner("NINJA SKILLS", "ninja");
   }
 
@@ -1729,7 +1816,6 @@
     emitSliceSparks(impact, "rgba(255, 180, 122, 0.95)", 15);
     triggerFlash("rgba(255, 136, 97, 0.55)", 0.92, 0.16);
     triggerShake(0.17, 7);
-    triggerHaptic([42, 28, 42]);
 
     state.arrows.active = null;
     state.arrows.timer = nextArrowDelay();
@@ -1942,7 +2028,7 @@
   function detectObstacleHit(previous, next) {
     let bestHit = null;
 
-    for (const obstacle of state.obstacles) {
+    for (const [obstacleIndex, obstacle] of state.obstacles.entries()) {
       const hit = sweepCircleCollision(
         previous,
         next,
@@ -1953,7 +2039,11 @@
       );
 
       if (hit && (!bestHit || hit.t < bestHit.t)) {
-        bestHit = hit;
+        bestHit = {
+          ...hit,
+          obstacleIndex,
+          obstacleRadius: obstacle.radius,
+        };
       }
     }
 
@@ -1966,7 +2056,6 @@
     updateComboDisplay();
     triggerFlash("rgba(255, 65, 105, 0.58)", 1, 0.18);
     triggerShake(0.16, 6);
-    triggerHaptic([24, 22, 24]);
   }
 
   function handleSpikeCollision(hit) {
@@ -1978,8 +2067,7 @@
       );
       triggerFlash("rgba(255, 110, 76, 0.6)", 1, 0.18);
       triggerShake(0.2, 8);
-      triggerHaptic([65, 30, 65]);
-      enterGameOver();
+      startClassicSpikeImpactZoom(hit);
       return;
     }
 
@@ -2052,7 +2140,6 @@
     const comboBoost = state.effects.comboBoost;
     triggerShake(0.22 + (comboBoost * 0.04), 8 + (state.run.difficulty * 0.04) + (comboBoost * 4.8));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9 + (comboBoost * 0.08), 0.12 + (comboBoost * 0.01));
-    triggerHaptic(16);
     const ninjaReady = (
       state.run.quickSliceChain >= NINJA_CHAIN_REQUIRED &&
       (now - state.run.lastNinjaAt) >= NINJA_EVENT_COOLDOWN_MS
@@ -2086,6 +2173,11 @@
     const center = { x: target.x, y: target.y };
 
     state.targets.splice(targetIndex, 1);
+    state.shot.targetsHit += 1;
+    if (state.shot.targetsHit >= 3 && !state.shot.tripleSliceFeedbackPlayed) {
+      state.shot.tripleSliceFeedbackPlayed = true;
+      triggerTripleSliceFeedback();
+    }
     applyTargetHitRewards();
 
     if (isTargetAtMinSize(target)) {
@@ -2152,7 +2244,6 @@
       dom.recordBadge.classList.toggle("hidden", !isNewRecord);
     }
 
-    triggerHaptic([60, 35, 60]);
     setOverlay("gameover");
     updateCoinDisplays();
     if (isNewRecord) {
@@ -2173,6 +2264,8 @@
     state.shot.duration = 0;
     state.shot.cooldown = DASH_COOLDOWN;
     state.shot.hitObstacle = false;
+    state.shot.targetsHit = 0;
+    state.shot.tripleSliceFeedbackPlayed = false;
     state.canShoot = false;
 
     state.attachPulses.push({
@@ -2219,11 +2312,19 @@
     state.targetFx = [];
     state.effects.shakeTime = 0;
     state.effects.shakeStrength = 0;
+    state.effects.classicSpikeZoomTime = 0;
+    state.effects.classicSpikeZoomDuration = 0;
+    state.effects.classicSpikeImpactX = ARENA.width / 2;
+    state.effects.classicSpikeImpactY = ARENA.height / 2;
+    state.effects.classicSpikeZoomObstacleIndex = -1;
+    state.effects.classicSpikeZoomPendingGameOver = false;
     state.effects.flashTime = 0;
     state.canShoot = true;
     state.shot.active = false;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
+    state.shot.targetsHit = 0;
+    state.shot.tripleSliceFeedbackPlayed = false;
     state.shot.id = 0;
     state.shot.elapsed = 0;
     state.shot.duration = 0;
@@ -2236,6 +2337,10 @@
     updateDifficulty();
     spawnFreshWaveTarget(false);
     resetPlayerToStartWall();
+    if (isClassicMode(state.run.mode)) {
+      state.run.obstacleUnlocked = true;
+      state.obstacles.push(createObstacle(0, state.obstacles));
+    }
     if (!state.profile.tutorials.repositionHintSeen) {
       state.run.moveHintTime = MOVE_HINT_DURATION;
       state.profile.tutorials.repositionHintSeen = true;
@@ -2258,6 +2363,12 @@
     state.canShoot = false;
     state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
+    state.effects.classicSpikeZoomTime = 0;
+    state.effects.classicSpikeZoomDuration = 0;
+    state.effects.classicSpikeImpactX = ARENA.width / 2;
+    state.effects.classicSpikeImpactY = ARENA.height / 2;
+    state.effects.classicSpikeZoomObstacleIndex = -1;
+    state.effects.classicSpikeZoomPendingGameOver = false;
     state.arrows.preview = null;
     state.arrows.active = null;
     if (dom.recordBadge) {
@@ -2312,6 +2423,8 @@
     state.shot.active = true;
     state.shot.sliced = false;
     state.shot.hitObstacle = false;
+    state.shot.targetsHit = 0;
+    state.shot.tripleSliceFeedbackPlayed = false;
     state.shot.id += 1;
     state.shot.startX = state.player.x;
     state.shot.startY = state.player.y;
@@ -2514,6 +2627,9 @@
 
           if (event.type === "obstacle") {
             handleSpikeCollision(event.hit);
+            if (state.effects.classicSpikeZoomPendingGameOver || !state.shot.active) {
+              return;
+            }
             if (!state.inRun) {
               return;
             }
@@ -2560,6 +2676,15 @@
   }
 
   function updateEffects(dt) {
+    if (state.effects.classicSpikeZoomPendingGameOver) {
+      state.effects.classicSpikeZoomTime = Math.max(0, state.effects.classicSpikeZoomTime - dt);
+      if (state.effects.classicSpikeZoomTime <= 0) {
+        state.effects.classicSpikeZoomPendingGameOver = false;
+        enterGameOver();
+      }
+      return;
+    }
+
     state.targets.forEach((target) => {
       target.pulse = Math.max(0, target.pulse - (dt * 3.6));
       target.flash = Math.max(0, target.flash - (dt * 4.6));
@@ -2568,6 +2693,7 @@
       fx.time += dt;
       return fx.time < fx.duration;
     });
+    state.effects.classicSpikeZoomTime = Math.max(0, state.effects.classicSpikeZoomTime - dt);
     state.effects.shakeTime = Math.max(0, state.effects.shakeTime - dt);
 
     if (state.effects.shakeTime <= 0) {
@@ -2614,6 +2740,10 @@
 
     if (!state.inRun) {
       updateParticles(dt);
+      return;
+    }
+
+    if (state.effects.classicSpikeZoomPendingGameOver) {
       return;
     }
 
@@ -2841,22 +2971,49 @@
     ctx.restore();
   }
 
-  function clipSlashHalf(impact, dir, normal, sign) {
-    const span = ARENA.width + ARENA.height;
-    const alongX = dir.x * span;
-    const alongY = dir.y * span;
-    const offsetX = normal.x * span * sign;
-    const offsetY = normal.y * span * sign;
-    const extendX = normal.x * span * 2 * sign;
-    const extendY = normal.y * span * 2 * sign;
+  function traceBrokenHeartHalfPath(radius, sign, fracture = 0) {
+    const gap = radius * 0.12 * fracture;
+    const topY = -radius * 0.22;
+    const tipY = radius * 1.04;
+    const tipX = sign * (radius * 0.02 + (gap * 0.14));
 
     ctx.beginPath();
-    ctx.moveTo(impact.x - alongX + offsetX, impact.y - alongY + offsetY);
-    ctx.lineTo(impact.x + alongX + offsetX, impact.y + alongY + offsetY);
-    ctx.lineTo(impact.x + alongX + offsetX + extendX, impact.y + alongY + offsetY + extendY);
-    ctx.lineTo(impact.x - alongX + offsetX + extendX, impact.y - alongY + offsetY + extendY);
+    ctx.moveTo(sign * (radius * 0.04 + (gap * 0.14)), topY);
+    ctx.bezierCurveTo(
+      sign * radius * 0.08,
+      -radius * 0.84,
+      sign * radius * 0.84,
+      -radius * 0.82,
+      sign * radius * 0.98,
+      -radius * 0.14,
+    );
+    ctx.bezierCurveTo(
+      sign * radius * 1.08,
+      radius * 0.42,
+      sign * radius * 0.66,
+      radius * 0.92,
+      tipX,
+      tipY,
+    );
+    ctx.lineTo(sign * (radius * 0.11 + (gap * 0.2)), radius * 0.72);
+    ctx.lineTo(sign * (radius * 0.28 + (gap * 0.9)), radius * 0.44);
+    ctx.lineTo(sign * (radius * 0.09 + (gap * 0.4)), radius * 0.14);
+    ctx.lineTo(sign * (radius * 0.22 + (gap * 0.74)), -radius * 0.04);
+    ctx.lineTo(sign * (radius * 0.06 + (gap * 0.3)), -radius * 0.28);
     ctx.closePath();
-    ctx.clip();
+  }
+
+  function traceBrokenHeartCrackPath(radius, fracture = 0) {
+    const spread = radius * (0.05 + (fracture * 0.08));
+
+    ctx.beginPath();
+    ctx.moveTo(0, -radius * 0.84);
+    ctx.lineTo(spread * 0.55, -radius * 0.56);
+    ctx.lineTo(-spread * 0.28, -radius * 0.26);
+    ctx.lineTo(spread, radius * 0.08);
+    ctx.lineTo(-spread * 0.18, radius * 0.42);
+    ctx.lineTo(spread * 0.42, radius * 0.76);
+    ctx.lineTo(0, radius * 1.06);
   }
 
   function drawTargetSplitEffect(timeMs, fx) {
@@ -2865,24 +3022,29 @@
     const dir = normalize(fx.dirX, fx.dirY);
     const cutDir = (dir.x === 0 && dir.y === 0) ? { x: 1, y: 0 } : dir;
     const normal = { x: -cutDir.y, y: cutDir.x };
+    const angle = Math.atan2(cutDir.y, cutDir.x);
     const collapseProgress = clamp((progress - 0.18) / 0.82, 0, 1);
-    const shellScale = lerp(1, 0.18, collapseProgress ** 2);
+    const shellScale = lerp(1, 0.22, collapseProgress ** 2);
     const halfRadius = Math.max(8, fx.fromRadius * shellScale);
-    const splitOffset = 12 + (fx.fromRadius * 0.24 * eased) + ((1 - shellScale) * fx.fromRadius * 0.08);
+    const splitOffset = 10 + (fx.fromRadius * 0.18 * eased) + ((1 - shellScale) * fx.fromRadius * 0.1);
     const halfAlpha = clamp(1 - (progress * 0.96), 0, 1);
+    const fracture = clamp((progress - 0.04) / 0.96, 0, 1);
+    const tilt = 0.1 + (0.24 * eased);
+    const drift = fx.fromRadius * 0.04 * eased;
 
     for (const sign of [-1, 1]) {
       ctx.save();
       ctx.globalAlpha = halfAlpha;
-      clipSlashHalf(
-        { x: fx.impactX, y: fx.impactY },
-        cutDir,
-        normal,
-        sign,
+      ctx.translate(
+        fx.centerX + (normal.x * splitOffset * sign) + (cutDir.x * drift),
+        fx.centerY + (normal.y * splitOffset * sign) + (cutDir.y * drift),
       );
+      ctx.rotate(angle + (tilt * sign));
+      traceBrokenHeartHalfPath(halfRadius, sign, fracture);
+      ctx.clip();
       drawCoreOrb(
-        fx.centerX + (normal.x * splitOffset * sign),
-        fx.centerY + (normal.y * splitOffset * sign),
+        0,
+        0,
         halfRadius,
         {
           alpha: halfAlpha,
@@ -2895,20 +3057,16 @@
     }
 
     ctx.save();
+    ctx.translate(fx.centerX, fx.centerY);
+    ctx.rotate(angle);
     ctx.globalAlpha = clamp(0.18 + ((1 - progress) * 0.82), 0, 1);
     ctx.strokeStyle = "rgba(255, 248, 223, 0.95)";
     ctx.shadowColor = "rgba(255, 241, 196, 0.88)";
     ctx.shadowBlur = 16;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.lineWidth = Math.max(2.8, fx.fromRadius * 0.07 * (1 - (progress * 0.2)));
-    ctx.beginPath();
-    ctx.moveTo(
-      fx.impactX - (cutDir.x * fx.fromRadius * 1.35),
-      fx.impactY - (cutDir.y * fx.fromRadius * 1.35),
-    );
-    ctx.lineTo(
-      fx.impactX + (cutDir.x * fx.fromRadius * 1.35),
-      fx.impactY + (cutDir.y * fx.fromRadius * 1.35),
-    );
+    traceBrokenHeartCrackPath(fx.fromRadius, fracture);
     ctx.stroke();
     ctx.restore();
   }
@@ -3280,8 +3438,6 @@
       ? clamp(state.run.guideTime / 0.85, 0, 1)
       : 1;
     const pulse = 0.7 + (((Math.sin(timeMs * 0.01) + 1) * 0.5) * 0.3);
-    const wingX = -guideDir.y;
-    const wingY = guideDir.x;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -3309,25 +3465,11 @@
     ctx.arc(leadTarget.x, leadTarget.y, Math.max(10, leadTarget.radius * 0.18) + (pulse * 5), 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "rgba(255, 174, 52, 0.98)";
-    ctx.beginPath();
-    ctx.moveTo(guideTarget.x, guideTarget.y);
-    ctx.lineTo(
-      guideTarget.x - (guideDir.x * 18) + (wingX * 10),
-      guideTarget.y - (guideDir.y * 18) + (wingY * 10),
-    );
-    ctx.lineTo(
-      guideTarget.x - (guideDir.x * 18) - (wingX * 10),
-      guideTarget.y - (guideDir.y * 18) - (wingY * 10),
-    );
-    ctx.closePath();
-    ctx.fill();
-
     ctx.shadowBlur = 0;
     ctx.fillStyle = "rgba(106, 45, 6, 0.94)";
     ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
     ctx.textAlign = "center";
-    ctx.fillText("Slice the target balls", leadTarget.x, leadTarget.y - leadTarget.radius - 18);
+    ctx.fillText("Tap to slice", leadTarget.x, leadTarget.y - leadTarget.radius - 18);
     ctx.restore();
   }
 
@@ -3692,8 +3834,140 @@
     ctx.restore();
   }
 
-  function drawObstacles() {
-    state.obstacles.forEach(drawObstacle);
+  function drawObstacles(skipIndex = -1) {
+    state.obstacles.forEach((obstacle, index) => {
+      if (index === skipIndex) {
+        return;
+      }
+      drawObstacle(obstacle);
+    });
+  }
+
+  function drawObstacleByIndex(index) {
+    const obstacle = state.obstacles[index];
+    if (!obstacle) {
+      return;
+    }
+    drawObstacle(obstacle);
+  }
+
+  function drawClassicSpikeGlue(timeMs) {
+    if (!isClassicSpikeZoomActive()) {
+      return;
+    }
+
+    const obstacle = state.obstacles[state.effects.classicSpikeZoomObstacleIndex];
+    if (!obstacle) {
+      return;
+    }
+
+    const impactX = state.effects.classicSpikeImpactX;
+    const impactY = state.effects.classicSpikeImpactY;
+    const glueDir = normalize(impactX - state.player.x, impactY - state.player.y);
+    if (glueDir.x === 0 && glueDir.y === 0) {
+      return;
+    }
+
+    const tangent = { x: -glueDir.y, y: glueDir.x };
+    const pulse = 0.78 + (((Math.sin(timeMs * 0.013) + 1) * 0.5) * 0.22);
+    const playerEdgeX = state.player.x + (glueDir.x * state.player.radius * 0.72);
+    const playerEdgeY = state.player.y + (glueDir.y * state.player.radius * 0.72);
+    const bridgeWidth = 4 + (pulse * 2.4);
+    const midX = (playerEdgeX + impactX) * 0.5;
+    const midY = (playerEdgeY + impactY) * 0.5;
+    const bulge = Math.min(10, distance(playerEdgeX, playerEdgeY, impactX, impactY) * 0.22);
+
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 183, 103, 0.72)";
+    ctx.shadowColor = "rgba(255, 167, 95, 0.78)";
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(
+      playerEdgeX + (tangent.x * bridgeWidth),
+      playerEdgeY + (tangent.y * bridgeWidth),
+    );
+    ctx.quadraticCurveTo(
+      midX + (tangent.x * bulge),
+      midY + (tangent.y * bulge),
+      impactX + (tangent.x * bridgeWidth * 0.54),
+      impactY + (tangent.y * bridgeWidth * 0.54),
+    );
+    ctx.lineTo(
+      impactX - (tangent.x * bridgeWidth * 0.54),
+      impactY - (tangent.y * bridgeWidth * 0.54),
+    );
+    ctx.quadraticCurveTo(
+      midX - (tangent.x * bulge),
+      midY - (tangent.y * bulge),
+      playerEdgeX - (tangent.x * bridgeWidth),
+      playerEdgeY - (tangent.y * bridgeWidth),
+    );
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 239, 188, 0.85)";
+    ctx.beginPath();
+    ctx.arc(playerEdgeX, playerEdgeY, bridgeWidth * 0.72, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(impactX, impactY, bridgeWidth * 0.58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawClassicSpikeProof(timeMs) {
+    if (!isClassicSpikeZoomActive()) {
+      return;
+    }
+
+    const obstacleIndex = state.effects.classicSpikeZoomObstacleIndex;
+    const obstacle = state.obstacles[obstacleIndex];
+    const impactX = state.effects.classicSpikeImpactX;
+    const impactY = state.effects.classicSpikeImpactY;
+    const pulse = 0.72 + (((Math.sin(timeMs * 0.012) + 1) * 0.5) * 0.28);
+
+    ctx.save();
+
+    if (obstacle) {
+      ctx.strokeStyle = `rgba(255, 118, 88, ${0.68 + (pulse * 0.18)})`;
+      ctx.shadowColor = "rgba(255, 138, 88, 0.78)";
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.arc(
+        obstacle.x,
+        obstacle.y,
+        obstacle.radius + 10 + (pulse * 5),
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(255, 246, 220, 0.96)";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(impactX, impactY, 8 + (pulse * 4), 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(impactX - (10 + (pulse * 2)), impactY - (10 + (pulse * 2)));
+    ctx.lineTo(impactX + (10 + (pulse * 2)), impactY + (10 + (pulse * 2)));
+    ctx.moveTo(impactX + (10 + (pulse * 2)), impactY - (10 + (pulse * 2)));
+    ctx.lineTo(impactX - (10 + (pulse * 2)), impactY + (10 + (pulse * 2)));
+    ctx.stroke();
+
+    const labelX = impactX;
+    const labelY = impactY - 24;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(116, 34, 14, 0.92)";
+    ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText("SPIKE HIT", labelX, labelY);
+
+    ctx.restore();
   }
 
   function render(timeMs) {
@@ -3708,6 +3982,13 @@
       ctx.translate(offsetX, offsetY);
     }
 
+    const classicSpikeZoom = getClassicSpikeZoomState();
+    if (classicSpikeZoom) {
+      ctx.translate(ARENA.width * 0.5, ARENA.height * 0.5);
+      ctx.scale(classicSpikeZoom.scale, classicSpikeZoom.scale);
+      ctx.translate(-classicSpikeZoom.x, -classicSpikeZoom.y);
+    }
+
     drawBackdrop(timeMs);
     drawTargets(timeMs);
     drawTargetFx(timeMs);
@@ -3715,7 +3996,9 @@
     drawArrows(timeMs);
     drawDashTrail();
     drawAfterimages();
+    drawClassicSpikeGlue(timeMs);
     drawPlayer();
+    drawClassicSpikeProof(timeMs);
     drawSlicePatternGuide(timeMs);
     drawMovementHint(timeMs);
     drawAttachPulses();
