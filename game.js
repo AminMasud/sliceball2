@@ -513,6 +513,33 @@
     return Math.hypot(px - closestX, py - closestY);
   }
 
+  function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSq = (abx * abx) + (aby * aby);
+
+    if (lengthSq <= 0.000001) {
+      return {
+        x: ax,
+        y: ay,
+        t: 0,
+        distance: Math.hypot(px - ax, py - ay),
+      };
+    }
+
+    const apx = px - ax;
+    const apy = py - ay;
+    const t = clamp(((apx * abx) + (apy * aby)) / lengthSq, 0, 1);
+    const x = ax + (abx * t);
+    const y = ay + (aby * t);
+    return {
+      x,
+      y,
+      t,
+      distance: Math.hypot(px - x, py - y),
+    };
+  }
+
   function segmentHitsObstacle(a, b, obstacle, extraRadius) {
     const hitDistance = obstacle.radius + extraRadius;
     return distancePointToSegment(obstacle.x, obstacle.y, a.x, a.y, b.x, b.y) <= hitDistance;
@@ -895,7 +922,52 @@
     }
   }
 
-  function chooseDefenderPair() {
+  function getDefenderAssistBias() {
+    return clamp(1 - (state.run.slices / 14), 0, 1);
+  }
+
+  function getPlayerFacingDefenderPair(anchor = state.player) {
+    const span = 68;
+    const depth = 124;
+    const tilt = 12;
+    const inset = 76;
+
+    if (anchor.wall === "top") {
+      const centerX = clamp(anchor.x, span + 40, ARENA.width - span - 40);
+      const centerY = clamp(anchor.y + depth, inset, ARENA.height - inset);
+      return [
+        { x: centerX - span, y: centerY - tilt },
+        { x: centerX + span, y: centerY + tilt },
+      ];
+    }
+
+    if (anchor.wall === "left") {
+      const centerX = clamp(anchor.x + depth, inset, ARENA.width - inset);
+      const centerY = clamp(anchor.y, span + 40, ARENA.height - span - 40);
+      return [
+        { x: centerX - tilt, y: centerY - span },
+        { x: centerX + tilt, y: centerY + span },
+      ];
+    }
+
+    if (anchor.wall === "right") {
+      const centerX = clamp(anchor.x - depth, inset, ARENA.width - inset);
+      const centerY = clamp(anchor.y, span + 40, ARENA.height - span - 40);
+      return [
+        { x: centerX + tilt, y: centerY - span },
+        { x: centerX - tilt, y: centerY + span },
+      ];
+    }
+
+    const centerX = clamp(anchor.x, span + 40, ARENA.width - span - 40);
+    const centerY = clamp(anchor.y - depth, inset, ARENA.height - inset);
+    return [
+      { x: centerX - span, y: centerY + tilt },
+      { x: centerX + span, y: centerY - tilt },
+    ];
+  }
+
+  function chooseRandomDefenderPair() {
     for (let attempts = 0; attempts < 90; attempts += 1) {
       const first = {
         x: random(44, ARENA.width - 44),
@@ -917,6 +989,20 @@
     ];
   }
 
+  function chooseDefenderPair() {
+    const bias = getDefenderAssistBias();
+    const randomPair = chooseRandomDefenderPair();
+    if (bias <= 0.001) {
+      return randomPair;
+    }
+
+    const guidedPair = getPlayerFacingDefenderPair();
+    return randomPair.map((point, index) => ({
+      x: lerp(point.x, guidedPair[index].x, bias),
+      y: lerp(point.y, guidedPair[index].y, bias),
+    }));
+  }
+
   function setDefendersToPair(pair) {
     pair.forEach((point, index) => {
       const defender = state.defenders[index];
@@ -929,7 +1015,7 @@
     enforceDefenderSeparation();
   }
 
-  function chooseWanderTarget(index) {
+  function chooseRandomWanderTarget(index) {
     const other = state.defenders[index === 0 ? 1 : 0];
 
     for (let attempts = 0; attempts < 60; attempts += 1) {
@@ -946,6 +1032,39 @@
     return {
       x: index === 0 ? ARENA.width * 0.3 : ARENA.width * 0.7,
       y: random(38, ARENA.height - 38),
+    };
+  }
+
+  function chooseWanderTarget(index) {
+    const bias = getDefenderAssistBias();
+    const randomTarget = chooseRandomWanderTarget(index);
+    if (bias <= 0.001) {
+      return randomTarget;
+    }
+
+    const other = state.defenders[index === 0 ? 1 : 0];
+    const guidedTarget = getPlayerFacingDefenderPair()[index];
+    const blended = {
+      x: lerp(randomTarget.x, guidedTarget.x, bias),
+      y: lerp(randomTarget.y, guidedTarget.y, bias),
+    };
+    const otherTarget = {
+      x: other.targetX ?? other.x,
+      y: other.targetY ?? other.y,
+    };
+    const gap = distance(blended.x, blended.y, otherTarget.x, otherTarget.y);
+    if (gap < DEFENDER_MIN_SEPARATION) {
+      const push = normalize(blended.x - otherTarget.x, blended.y - otherTarget.y);
+      const pushDir = (push.x === 0 && push.y === 0)
+        ? normalize(guidedTarget.x - otherTarget.x, guidedTarget.y - otherTarget.y)
+        : push;
+      blended.x = otherTarget.x + (pushDir.x * DEFENDER_MIN_SEPARATION);
+      blended.y = otherTarget.y + (pushDir.y * DEFENDER_MIN_SEPARATION);
+    }
+
+    return {
+      x: clamp(blended.x, 38, ARENA.width - 38),
+      y: clamp(blended.y, 38, ARENA.height - 38),
     };
   }
 
@@ -1236,6 +1355,78 @@
     triggerShake(0.14, 5);
   }
 
+  function triggerDefenderBounce(hit, previous) {
+    if (state.shot.hitObstacle || !state.shot.active) {
+      return;
+    }
+
+    const impact = {
+      x: clamp(hit.impactX, state.player.radius, ARENA.width - state.player.radius),
+      y: clamp(hit.impactY, state.player.radius, ARENA.height - state.player.radius),
+    };
+    const incoming = normalize(
+      state.player.x - previous.x,
+      state.player.y - previous.y,
+    );
+    const fallbackIncoming = normalize(
+      state.shot.endX - state.shot.startX,
+      state.shot.endY - state.shot.startY,
+    );
+    const travel = (incoming.x === 0 && incoming.y === 0)
+      ? fallbackIncoming
+      : incoming;
+
+    let normal = normalize(
+      impact.x - hit.centerX,
+      impact.y - hit.centerY,
+    );
+
+    if (normal.x === 0 && normal.y === 0) {
+      normal = normalize(-(travel.y), travel.x);
+    }
+
+    let dot = (travel.x * normal.x) + (travel.y * normal.y);
+    if (dot > 0) {
+      normal.x *= -1;
+      normal.y *= -1;
+      dot = (travel.x * normal.x) + (travel.y * normal.y);
+    }
+
+    let reflected = normalize(
+      travel.x - (2 * dot * normal.x),
+      travel.y - (2 * dot * normal.y),
+    );
+    if (reflected.x === 0 && reflected.y === 0) {
+      reflected = { x: -travel.x, y: -travel.y };
+    }
+
+    const deflectStart = {
+      x: impact.x + (reflected.x * 1.5),
+      y: impact.y + (reflected.y * 1.5),
+    };
+    let bounceTarget = rayToWallTarget(deflectStart, reflected, state.player.radius);
+    if (!bounceTarget) {
+      bounceTarget = clampToWallBounds({
+        x: state.shot.startX,
+        y: state.shot.startY,
+        wall: getWallAtPoint(state.shot.startX, state.shot.startY, state.player.radius),
+      }, state.player.radius);
+    }
+
+    const bounceDistance = distance(impact.x, impact.y, bounceTarget.x, bounceTarget.y);
+    state.shot.hitObstacle = true;
+    state.shot.startX = impact.x;
+    state.shot.startY = impact.y;
+    state.shot.endX = bounceTarget.x;
+    state.shot.endY = bounceTarget.y;
+    state.shot.elapsed = 0;
+    state.shot.duration = clamp(bounceDistance / (DASH_SPEED * 1.05), 0.06, DASH_MAX_DURATION);
+
+    emitSliceSparks(impact, "rgba(255, 152, 116, 0.96)", 18);
+    triggerFlash("rgba(255, 153, 115, 0.3)", 0.46, 0.09);
+    triggerShake(0.12, 4);
+  }
+
   function signedSide(point, lineA, lineB) {
     const normalX = -(lineB.y - lineA.y);
     const normalY = lineB.x - lineA.x;
@@ -1367,34 +1558,50 @@
       },
     ];
 
+    let bestHit = null;
+
     for (const defender of defenders) {
       const hitDistance = defender.radius + state.player.radius;
-      const currentHit = distancePointToSegment(
+      const currentClosest = closestPointOnSegment(
         defender.x,
         defender.y,
         previous.x,
         previous.y,
         next.x,
         next.y,
-      ) <= hitDistance;
-      const previousHit = distancePointToSegment(
+      );
+      const previousClosest = closestPointOnSegment(
         defender.prevX,
         defender.prevY,
         previous.x,
         previous.y,
         next.x,
         next.y,
-      ) <= hitDistance;
+      );
+      const candidate = currentClosest.distance <= previousClosest.distance
+        ? {
+            impactX: currentClosest.x,
+            impactY: currentClosest.y,
+            centerX: defender.x,
+            centerY: defender.y,
+            t: currentClosest.t,
+            distance: currentClosest.distance,
+          }
+        : {
+            impactX: previousClosest.x,
+            impactY: previousClosest.y,
+            centerX: defender.prevX,
+            centerY: defender.prevY,
+            t: previousClosest.t,
+            distance: previousClosest.distance,
+          };
 
-      if (currentHit || previousHit) {
-        return {
-          x: (next.x + defender.x) * 0.5,
-          y: (next.y + defender.y) * 0.5,
-        };
+      if (candidate.distance <= hitDistance && (!bestHit || candidate.t < bestHit.t)) {
+        bestHit = candidate;
       }
     }
 
-    return null;
+    return bestHit;
   }
 
   function registerMiss() {
@@ -1560,9 +1767,9 @@
     state.shot.dashParticlesEmitted = 0;
     state.aim.active = false;
     updateDifficulty();
+    resetPlayerToStartWall();
     setDefendersToPair(chooseDefenderPair());
     planDefenderReposition();
-    resetPlayerToStartWall();
     state.dashTrail.length = 0;
     state.afterimages.length = 0;
     state.attachPulses.length = 0;
@@ -1923,7 +2130,7 @@
         lineCurrent,
       );
       if (defenderHit) {
-        triggerObstacleBounce(defenderHit);
+        triggerDefenderBounce(defenderHit, previous);
       }
     }
 
