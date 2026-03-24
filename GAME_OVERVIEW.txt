@@ -25,7 +25,9 @@ GAME OVERVIEW (CURRENT BUILD)
 - Core behavior:
   - starts large
   - shrinks after every successful hit
-  - stops shrinking at a minimum radius
+  - shows a cut exactly at the hit line
+  - reveals the next smaller orb underneath the split
+  - respawns as a fresh full-size orb after the minimum-size cut
 - Successful core hit reward:
   - `+1` score
   - `+1` coin
@@ -55,17 +57,21 @@ GAME OVERVIEW (CURRENT BUILD)
   - starts from the attacker
   - points through the center core toward a valid wall target
   - stays visible until the first actual launch
+- First-time movement hint:
+  - appears only once for new players
+  - explains that the attacker can reposition to a different wall spot before attacking
 
 
 6) COLLISION / PHYSICS MODEL
 - Core hits use swept circle collision.
 - Spike hits use swept moving-circle collision.
+- Temporary wall hazards use line-segment collision.
 - Collision order:
   - earliest impact during the dash step wins
   - tie-break currently favors the core target over hazards
 - Spike reflection:
   - still rebounds the attacker back toward the launch wall
-- Arrow hit:
+- Temporary wall hit:
   - counts as a miss
 
 
@@ -73,7 +79,7 @@ GAME OVERVIEW (CURRENT BUILD)
 - Difficulty now comes from:
   - the shrinking center core
   - moving spikes
-  - late-run arrow hazards
+  - late-run temporary wall hazards
 
 
 8) TIMER / COMBO / COINS
@@ -101,11 +107,13 @@ GAME OVERVIEW (CURRENT BUILD)
   - 1st spike unlocks at `5` hits
   - 2nd spike unlocks at `30` hits
   - spikes move across the arena
+  - spikes are pushed away from the live target area
   - spike collision rebounds the attacker and invalidates the dash
-- Arrows:
+- Temporary walls:
   - unlock at `50` hits
   - warning lane appears before spawn
-  - arrow hit counts as a miss
+  - active hazard becomes a glowing line segment across the lane
+  - wall hit counts as a miss
 
 
 10) ATTACKER SKINS (COSMETIC)
@@ -131,6 +139,8 @@ GAME OVERVIEW (CURRENT BUILD)
 - Core hit:
   - spark burst
   - core pulse / flash
+  - split halves peel away from the actual slice line
+  - next orb becomes visible under the cut
   - warped pop-up banner
   - screen flash + optional shake
 - Arena:

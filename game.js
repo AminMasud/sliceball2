@@ -11,23 +11,24 @@
   const LOW_TIME_HEAT_THRESHOLD = 0.28;
   const OBSTACLE_UNLOCK_SLICES = 5;
   const SECOND_OBSTACLE_UNLOCK_SLICES = 30;
-  const ARROW_UNLOCK_SLICES = 50;
+  const WALL_UNLOCK_SLICES = 50;
   const SPIKE_MIN_SEPARATION = 160;
   const SPIKE_SPEED_BASE = 80;
   const SPIKE_SPEED_SCALE = 1.35;
   const SPIKE_SPEED_MAX = 230;
-  const ARROW_WARNING_DURATION = 0.78;
-  const ARROW_MIN_DELAY = 1.9;
-  const ARROW_MAX_DELAY = 3.8;
-  const ARROW_SPEED_BASE = 420;
-  const ARROW_SPEED_SCALE = 3.4;
-  const ARROW_RADIUS = 8;
-  const ARROW_OFFSCREEN_MARGIN = 42;
+  const WALL_WARNING_DURATION = 0.78;
+  const WALL_MIN_DELAY = 1.9;
+  const WALL_MAX_DELAY = 3.8;
+  const WALL_ACTIVE_DURATION = 1.12;
+  const WALL_HALF_THICKNESS = 7;
   const PLAYER_RADIUS = 14;
   const CORE_START_RADIUS = 74;
   const CORE_MIN_RADIUS = 24;
   const CORE_SHRINK_PER_HIT = 3.4;
   const CORE_CLEARANCE_PADDING = 20;
+  const CORE_SPLIT_DURATION = 0.46;
+  const CORE_RESPAWN_DELAY = 0.2;
+  const MOVE_HINT_DURATION = 6.5;
   const DASH_MIN_DURATION = 0.08;
   const DASH_MAX_DURATION = 0.14;
   const DASH_SPEED = 4000;
@@ -196,6 +197,7 @@
       radius: CORE_START_RADIUS,
       pulse: 0,
       flash: 0,
+      sliceFx: null,
     },
     aim: {
       active: false,
@@ -225,6 +227,7 @@
       bestCombo: 0,
       slices: 0,
       guideTime: 0,
+      moveHintTime: 0,
       timerStarted: false,
       sliceTimer: SLICE_TIMEOUT_SECONDS,
       quickSliceChain: 0,
@@ -266,6 +269,9 @@
       ownedSkins: { [SKINS[0].id]: true },
       records: {
         bestScore: 0,
+      },
+      tutorials: {
+        repositionHintSeen: false,
       },
       options: {
         screenShake: true,
@@ -322,6 +328,9 @@
         ownedSkins,
         records: {
           bestScore,
+        },
+        tutorials: {
+          repositionHintSeen: parsed.tutorials?.repositionHintSeen === true,
         },
         options: {
           screenShake: parsed.options?.screenShake !== false,
@@ -481,16 +490,17 @@
     return target;
   }
 
-  function getCoreRadiusForSlices(sliceCount = state.run.slices) {
-    return clamp(
-      CORE_START_RADIUS - (sliceCount * CORE_SHRINK_PER_HIT),
-      CORE_MIN_RADIUS,
-      CORE_START_RADIUS,
-    );
+  function getNextCoreRadius(currentRadius = state.core.radius) {
+    const candidate = currentRadius - CORE_SHRINK_PER_HIT;
+    return candidate < CORE_MIN_RADIUS ? CORE_START_RADIUS : clamp(candidate, CORE_MIN_RADIUS, CORE_START_RADIUS);
   }
 
   function getCoreExclusionRadius(entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
-    return state.core.radius + entityRadius + padding;
+    const visibleRadius = Math.max(
+      state.core.radius,
+      state.core.sliceFx?.fromRadius ?? 0,
+    );
+    return visibleRadius + entityRadius + padding;
   }
 
   function isPointInsideCoreBuffer(x, y, entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
@@ -512,6 +522,51 @@
     const closestX = ax + (abx * t);
     const closestY = ay + (aby * t);
     return Math.hypot(px - closestX, py - closestY);
+  }
+
+  function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSq = (abx * abx) + (aby * aby);
+
+    if (lengthSq <= 0.000001) {
+      return {
+        x: ax,
+        y: ay,
+        t: 0,
+        distance: Math.hypot(px - ax, py - ay),
+      };
+    }
+
+    const apx = px - ax;
+    const apy = py - ay;
+    const t = clamp(((apx * abx) + (apy * aby)) / lengthSq, 0, 1);
+    const x = ax + (abx * t);
+    const y = ay + (aby * t);
+    return {
+      x,
+      y,
+      t,
+      distance: Math.hypot(px - x, py - y),
+    };
+  }
+
+  function distanceSegmentToSegment(a, b, c, d) {
+    if (segmentIntersection(a, b, c, d)) {
+      return 0;
+    }
+
+    return Math.min(
+      distancePointToSegment(a.x, a.y, c.x, c.y, d.x, d.y),
+      distancePointToSegment(b.x, b.y, c.x, c.y, d.x, d.y),
+      distancePointToSegment(c.x, c.y, a.x, a.y, b.x, b.y),
+      distancePointToSegment(d.x, d.y, a.x, a.y, b.x, b.y),
+    );
+  }
+
+  function easeOutCubic(t) {
+    const clamped = clamp(t, 0, 1);
+    return 1 - ((1 - clamped) ** 3);
   }
 
   function sweepCircleCollision(startA, endA, radiusA, startB, endB, radiusB) {
@@ -962,7 +1017,6 @@
   function updateDifficulty() {
     const d = state.run.slices;
     state.run.difficulty = d;
-    state.core.radius = getCoreRadiusForSlices(d);
     state.run.spikeSpeed = SPIKE_SPEED_BASE + Math.min(SPIKE_SPEED_MAX - SPIKE_SPEED_BASE, d * SPIKE_SPEED_SCALE);
   }
 
@@ -1029,6 +1083,35 @@
     };
   }
 
+  function resolveObstacleCoreCollision(obstacle) {
+    const minGap = getCoreExclusionRadius(obstacle.radius, 16);
+    let dx = obstacle.x - state.core.x;
+    let dy = obstacle.y - state.core.y;
+    let gap = Math.hypot(dx, dy);
+
+    if (gap >= minGap) {
+      return;
+    }
+
+    if (gap < 0.0001) {
+      gap = 0.0001;
+      dx = 1;
+      dy = 0;
+    }
+
+    const nx = dx / gap;
+    const ny = dy / gap;
+    const overlap = minGap - gap;
+    obstacle.x += nx * overlap;
+    obstacle.y += ny * overlap;
+
+    const dot = (obstacle.vx * nx) + (obstacle.vy * ny);
+    if (dot < 0) {
+      obstacle.vx -= 2 * dot * nx;
+      obstacle.vy -= 2 * dot * ny;
+    }
+  }
+
   function unlockObstaclesIfNeeded() {
     if (state.run.slices >= OBSTACLE_UNLOCK_SLICES && state.obstacles.length === 0) {
       state.run.obstacleUnlocked = true;
@@ -1044,8 +1127,8 @@
 
   function nextArrowDelay() {
     const pressure = Math.min(1.25, state.run.slices * 0.009);
-    const minDelay = Math.max(0.95, ARROW_MIN_DELAY - (pressure * 0.4));
-    const maxDelay = Math.max(minDelay + 0.25, ARROW_MAX_DELAY - pressure);
+    const minDelay = Math.max(0.95, WALL_MIN_DELAY - (pressure * 0.4));
+    const maxDelay = Math.max(minDelay + 0.25, WALL_MAX_DELAY - pressure);
     return random(minDelay, maxDelay);
   }
 
@@ -1054,7 +1137,6 @@
 
     for (let attempts = 0; attempts < 18; attempts += 1) {
       const horizontal = Math.random() < 0.5;
-      const forward = Math.random() < 0.5;
       let lane;
 
       if (horizontal) {
@@ -1064,10 +1146,6 @@
           warningStartY: y,
           warningEndX: ARENA.width - 4,
           warningEndY: y,
-          startX: forward ? -ARROW_OFFSCREEN_MARGIN : ARENA.width + ARROW_OFFSCREEN_MARGIN,
-          startY: y,
-          endX: forward ? ARENA.width + ARROW_OFFSCREEN_MARGIN : -ARROW_OFFSCREEN_MARGIN,
-          endY: y,
         };
       } else {
         const x = random(inset, ARENA.width - inset);
@@ -1076,10 +1154,6 @@
           warningStartY: 4,
           warningEndX: x,
           warningEndY: ARENA.height - 4,
-          startX: x,
-          startY: forward ? -ARROW_OFFSCREEN_MARGIN : ARENA.height + ARROW_OFFSCREEN_MARGIN,
-          endX: x,
-          endY: forward ? ARENA.height + ARROW_OFFSCREEN_MARGIN : -ARROW_OFFSCREEN_MARGIN,
         };
       }
 
@@ -1103,48 +1177,36 @@
       warningStartY: ARENA.height * 0.5,
       warningEndX: ARENA.width - 4,
       warningEndY: ARENA.height * 0.5,
-      startX: -ARROW_OFFSCREEN_MARGIN,
-      startY: ARENA.height * 0.5,
-      endX: ARENA.width + ARROW_OFFSCREEN_MARGIN,
-      endY: ARENA.height * 0.5,
     };
   }
 
   function startArrowWarning() {
     state.arrows.preview = {
       lane: createArrowLane(),
-      timeLeft: ARROW_WARNING_DURATION,
+      timeLeft: WALL_WARNING_DURATION,
     };
   }
 
   function spawnArrowFromWarning(preview) {
     const lane = preview.lane;
-    const dir = normalize(lane.endX - lane.startX, lane.endY - lane.startY);
-    const speed = ARROW_SPEED_BASE + Math.min(280, state.run.slices * ARROW_SPEED_SCALE);
     state.arrows.active = {
-      x: lane.startX,
-      y: lane.startY,
-      prevX: lane.startX,
-      prevY: lane.startY,
-      vx: dir.x * speed,
-      vy: dir.y * speed,
-      dirX: dir.x,
-      dirY: dir.y,
-      angle: Math.atan2(dir.y, dir.x),
-      radius: ARROW_RADIUS,
-      travelled: 0,
-      maxTravel: distance(lane.startX, lane.startY, lane.endX, lane.endY) + 30,
+      ax: lane.warningStartX,
+      ay: lane.warningStartY,
+      bx: lane.warningEndX,
+      by: lane.warningEndY,
+      thickness: WALL_HALF_THICKNESS,
+      timeLeft: WALL_ACTIVE_DURATION,
     };
   }
 
   function unlockArrowHazardsIfNeeded() {
-    if (state.arrows.unlocked || state.run.slices < ARROW_UNLOCK_SLICES) {
+    if (state.arrows.unlocked || state.run.slices < WALL_UNLOCK_SLICES) {
       return;
     }
 
     state.arrows.unlocked = true;
     state.arrows.timer = random(0.65, 1.15);
-    showBanner("ARROWS INBOUND", "warn");
+    showBanner("WALLS ONLINE", "warn");
   }
 
   function handleArrowHit(hitPoint = null) {
@@ -1157,12 +1219,32 @@
     state.arrows.timer = nextArrowDelay();
 
     if (state.shot.active) {
-      state.shot.hitObstacle = true;
-      finalizeShot(true);
+      triggerObstacleBounce({
+        playerX: state.player.x,
+        playerY: state.player.y,
+        contactX: impact.x,
+        contactY: impact.y,
+      });
       return;
     }
 
     registerMiss();
+  }
+
+  function getActiveWallHitPoint(point) {
+    const active = state.arrows.active;
+    if (!active) {
+      return point;
+    }
+
+    return closestPointOnSegment(
+      point.x,
+      point.y,
+      active.ax,
+      active.ay,
+      active.bx,
+      active.by,
+    );
   }
 
   function triggerObstacleBounce(hit = null) {
@@ -1273,6 +1355,25 @@
       return;
     }
 
+    const previousRadius = state.core.radius;
+    const nextRadius = getNextCoreRadius(previousRadius);
+    const respawns = previousRadius <= (CORE_MIN_RADIUS + 0.01);
+    const dashDir = normalize(
+      state.player.vx || (state.shot.endX - state.shot.startX),
+      state.player.vy || (state.shot.endY - state.shot.startY),
+    );
+    state.core.sliceFx = {
+      time: 0,
+      duration: CORE_SPLIT_DURATION,
+      fromRadius: previousRadius,
+      toRadius: nextRadius,
+      impactX: impactPoint?.x ?? state.core.x,
+      impactY: impactPoint?.y ?? state.core.y,
+      dirX: dashDir.x === 0 && dashDir.y === 0 ? 1 : dashDir.x,
+      dirY: dashDir.x === 0 && dashDir.y === 0 ? 0 : dashDir.y,
+      respawns,
+    };
+    state.core.radius = nextRadius;
     state.shot.sliced = true;
 
     state.run.score += 1;
@@ -1393,6 +1494,7 @@
     state.run.bestCombo = 0;
     state.run.slices = 0;
     state.run.guideTime = 4.1;
+    state.run.moveHintTime = 0;
     state.run.timerStarted = false;
     state.run.sliceTimer = SLICE_TIMEOUT_SECONDS;
     state.run.quickSliceChain = 0;
@@ -1406,8 +1508,10 @@
     state.arrows.preview = null;
     state.arrows.active = null;
     state.particles.length = 0;
+    state.core.radius = CORE_START_RADIUS;
     state.core.pulse = 0;
     state.core.flash = 0;
+    state.core.sliceFx = null;
     state.effects.shakeTime = 0;
     state.effects.shakeStrength = 0;
     state.effects.flashTime = 0;
@@ -1422,6 +1526,11 @@
     state.aim.active = false;
     updateDifficulty();
     resetPlayerToStartWall();
+    if (!state.profile.tutorials.repositionHintSeen) {
+      state.run.moveHintTime = MOVE_HINT_DURATION;
+      state.profile.tutorials.repositionHintSeen = true;
+      saveProfile();
+    }
     state.dashTrail.length = 0;
     state.afterimages.length = 0;
     state.attachPulses.length = 0;
@@ -1482,6 +1591,7 @@
     const duration = clamp(dashDistance / DASH_SPEED, DASH_MIN_DURATION, DASH_MAX_DURATION);
 
     state.run.guideTime = 0;
+    state.run.moveHintTime = 0;
     state.run.timerStarted = true;
     state.shot.active = true;
     state.shot.sliced = false;
@@ -1534,6 +1644,8 @@
         obstacle.vy *= -1;
         obstacle.y = clamp(obstacle.y, obstacle.radius, ARENA.height - obstacle.radius);
       }
+
+      resolveObstacleCoreCollision(obstacle);
     });
 
     if (state.obstacles.length >= 2) {
@@ -1576,6 +1688,8 @@
           first.y = clamp(first.y, first.radius, ARENA.height - first.radius);
           second.x = clamp(second.x, second.radius, ARENA.width - second.radius);
           second.y = clamp(second.y, second.radius, ARENA.height - second.radius);
+          resolveObstacleCoreCollision(first);
+          resolveObstacleCoreCollision(second);
         }
       }
     }
@@ -1596,31 +1710,24 @@
     }
 
     if (state.arrows.active) {
-      const arrow = state.arrows.active;
-      arrow.prevX = arrow.x;
-      arrow.prevY = arrow.y;
-      const stepX = arrow.vx * dt;
-      const stepY = arrow.vy * dt;
-      arrow.x += stepX;
-      arrow.y += stepY;
-      arrow.travelled += Math.hypot(stepX, stepY);
-
-      const hitDistance = state.player.radius + arrow.radius;
+      const wall = state.arrows.active;
+      wall.timeLeft -= dt;
       const playerHit = distancePointToSegment(
         state.player.x,
         state.player.y,
-        arrow.prevX,
-        arrow.prevY,
-        arrow.x,
-        arrow.y,
-      ) <= hitDistance;
+        wall.ax,
+        wall.ay,
+        wall.bx,
+        wall.by,
+      ) <= (state.player.radius + wall.thickness);
 
       if (playerHit) {
-        handleArrowHit();
+        const hitPoint = getActiveWallHitPoint(state.player);
+        handleArrowHit({ x: hitPoint.x, y: hitPoint.y });
         return;
       }
 
-      if (arrow.travelled >= arrow.maxTravel) {
+      if (wall.timeLeft <= 0) {
         state.arrows.active = null;
       }
       return;
@@ -1685,37 +1792,22 @@
     }
 
     if (!state.shot.hitObstacle && state.arrows.active) {
-      const arrow = state.arrows.active;
+      const wall = state.arrows.active;
       const dashSegmentEnd = { x: state.player.x, y: state.player.y };
       const arrowDashHit = (
-        distancePointToSegment(
-          arrow.x,
-          arrow.y,
-          previous.x,
-          previous.y,
-          dashSegmentEnd.x,
-          dashSegmentEnd.y,
-        ) <= (state.player.radius + arrow.radius) ||
-        distancePointToSegment(
-          arrow.prevX,
-          arrow.prevY,
-          previous.x,
-          previous.y,
-          dashSegmentEnd.x,
-          dashSegmentEnd.y,
-        ) <= (state.player.radius + arrow.radius) ||
-        Boolean(segmentIntersection(
+        distanceSegmentToSegment(
           previous,
           dashSegmentEnd,
-          { x: arrow.prevX, y: arrow.prevY },
-          { x: arrow.x, y: arrow.y },
-        ))
+          { x: wall.ax, y: wall.ay },
+          { x: wall.bx, y: wall.by },
+        ) <= (state.player.radius + wall.thickness)
       );
 
       if (arrowDashHit) {
+        const hitPoint = getActiveWallHitPoint(state.player);
         handleArrowHit({
-          x: (state.player.x + arrow.x) * 0.5,
-          y: (state.player.y + arrow.y) * 0.5,
+          x: hitPoint.x,
+          y: hitPoint.y,
         });
         return;
       }
@@ -1792,6 +1884,12 @@
   function updateEffects(dt) {
     state.core.pulse = Math.max(0, state.core.pulse - (dt * 3.6));
     state.core.flash = Math.max(0, state.core.flash - (dt * 4.6));
+    if (state.core.sliceFx) {
+      state.core.sliceFx.time += dt;
+      if (state.core.sliceFx.time >= state.core.sliceFx.duration) {
+        state.core.sliceFx = null;
+      }
+    }
     state.effects.shakeTime = Math.max(0, state.effects.shakeTime - dt);
 
     if (state.effects.shakeTime <= 0) {
@@ -1840,6 +1938,10 @@
       return;
     }
 
+    if (state.run.moveHintTime > 0) {
+      state.run.moveHintTime = Math.max(0, state.run.moveHintTime - dt);
+    }
+
     if (state.run.timerStarted) {
       state.run.guideTime = Math.max(0, state.run.guideTime - dt);
     }
@@ -1873,13 +1975,14 @@
 
     ctx.save();
     const core = state.core;
+    const visibleRadius = Math.max(core.radius, core.sliceFx?.fromRadius ?? 0);
     const centerGlow = ctx.createRadialGradient(
       core.x,
-      core.y - (core.radius * 0.2),
+      core.y - (visibleRadius * 0.2),
       18,
       core.x,
       core.y,
-      core.radius * 3.2,
+      visibleRadius * 3.2,
     );
     centerGlow.addColorStop(0, "rgba(255, 255, 255, 0.62)");
     centerGlow.addColorStop(0.55, "rgba(255, 255, 255, 0.22)");
@@ -1899,7 +2002,7 @@
     const vignette = ctx.createRadialGradient(
       core.x,
       core.y,
-      core.radius * 1.8,
+      visibleRadius * 1.8,
       core.x,
       core.y,
       ARENA.width * 0.82,
@@ -1950,22 +2053,23 @@
     ctx.restore();
   }
 
-  function drawCoreTarget(timeMs) {
-    const core = state.core;
-    const comboBoost = state.effects.comboBoost;
-    const pulse = state.core.pulse;
-    const flash = state.core.flash;
-    const wobble = Math.sin(timeMs * 0.007) * 1.6;
-    const displayRadius = core.radius + wobble + (pulse * 6);
+  function drawCoreOrb(x, y, radius, options = {}) {
+    const comboBoost = options.comboBoost ?? state.effects.comboBoost;
+    const pulse = options.pulse ?? state.core.pulse;
+    const flash = options.flash ?? state.core.flash;
+    const alpha = options.alpha ?? 1;
+    const wobble = options.wobble ?? 0;
+    const displayRadius = radius + wobble + (pulse * 6);
     const auraRadius = displayRadius + 16 + (comboBoost * 2.2);
 
     ctx.save();
+    ctx.globalAlpha = alpha;
     const aura = ctx.createRadialGradient(
-      core.x,
-      core.y,
+      x,
+      y,
       displayRadius * 0.2,
-      core.x,
-      core.y,
+      x,
+      y,
       auraRadius,
     );
     aura.addColorStop(0, `rgba(255, 246, 215, ${0.28 + (flash * 0.14)})`);
@@ -1973,15 +2077,15 @@
     aura.addColorStop(1, "rgba(255, 181, 86, 0)");
     ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(core.x, core.y, auraRadius, 0, Math.PI * 2);
+    ctx.arc(x, y, auraRadius, 0, Math.PI * 2);
     ctx.fill();
 
     const orb = ctx.createRadialGradient(
-      core.x - (displayRadius * 0.32),
-      core.y - (displayRadius * 0.36),
+      x - (displayRadius * 0.32),
+      y - (displayRadius * 0.36),
       Math.max(6, displayRadius * 0.14),
-      core.x,
-      core.y,
+      x,
+      y,
       displayRadius,
     );
     orb.addColorStop(0, "#fffef1");
@@ -1992,28 +2096,131 @@
     ctx.shadowColor = `rgba(255, 173, 68, ${0.35 + (flash * 0.25)})`;
     ctx.shadowBlur = 20 + (pulse * 10) + (comboBoost * 5);
     ctx.beginPath();
-    ctx.arc(core.x, core.y, displayRadius, 0, Math.PI * 2);
+    ctx.arc(x, y, displayRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.shadowBlur = 0;
     ctx.strokeStyle = `rgba(127, 56, 12, ${0.6 + (flash * 0.3)})`;
     ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.arc(core.x, core.y, displayRadius, 0, Math.PI * 2);
+    ctx.arc(x, y, displayRadius, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255, 247, 224, ${0.4 + (flash * 0.28)})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(core.x, core.y, Math.max(10, displayRadius * 0.72), 0, Math.PI * 2);
+    ctx.arc(x, y, Math.max(10, displayRadius * 0.72), 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = `rgba(255, 239, 200, ${0.26 + (pulse * 0.18)})`;
     ctx.lineWidth = 2.6;
     ctx.beginPath();
-    ctx.arc(core.x, core.y, displayRadius + 10 + (pulse * 8), 0, Math.PI * 2);
+    ctx.arc(x, y, displayRadius + 10 + (pulse * 8), 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  function clipSlashHalf(impact, dir, normal, sign) {
+    const span = ARENA.width + ARENA.height;
+    const alongX = dir.x * span;
+    const alongY = dir.y * span;
+    const offsetX = normal.x * span * sign;
+    const offsetY = normal.y * span * sign;
+    const extendX = normal.x * span * 2 * sign;
+    const extendY = normal.y * span * 2 * sign;
+
+    ctx.beginPath();
+    ctx.moveTo(impact.x - alongX + offsetX, impact.y - alongY + offsetY);
+    ctx.lineTo(impact.x + alongX + offsetX, impact.y + alongY + offsetY);
+    ctx.lineTo(impact.x + alongX + offsetX + extendX, impact.y + alongY + offsetY + extendY);
+    ctx.lineTo(impact.x - alongX + offsetX + extendX, impact.y - alongY + offsetY + extendY);
+    ctx.closePath();
+    ctx.clip();
+  }
+
+  function drawCoreSliceEffect(timeMs, fx) {
+    const progress = clamp(fx.time / Math.max(0.0001, fx.duration), 0, 1);
+    const eased = easeOutCubic(progress);
+    const dir = normalize(fx.dirX, fx.dirY);
+    const cutDir = (dir.x === 0 && dir.y === 0) ? { x: 1, y: 0 } : dir;
+    const normal = { x: -cutDir.y, y: cutDir.x };
+    const splitOffset = 10 + (fx.fromRadius * 0.34 * eased);
+    const halfAlpha = clamp(1 - (progress * 1.15), 0, 1);
+    const revealStart = fx.respawns ? (CORE_RESPAWN_DELAY / fx.duration) : 0;
+    const revealProgress = clamp((progress - revealStart) / Math.max(0.0001, 1 - revealStart), 0, 1);
+    const revealScale = fx.respawns ? easeOutCubic(revealProgress) : 1;
+    const newCoreAlpha = fx.respawns ? revealProgress : 1;
+
+    if (newCoreAlpha > 0.001) {
+      drawCoreOrb(
+        state.core.x,
+        state.core.y,
+        Math.max(8, state.core.radius * Math.max(0.2, revealScale)),
+        {
+          alpha: newCoreAlpha,
+          pulse: state.core.pulse * newCoreAlpha,
+          flash: state.core.flash * newCoreAlpha,
+          wobble: Math.sin(timeMs * 0.007) * 1.2 * newCoreAlpha,
+        },
+      );
+    }
+
+    for (const sign of [-1, 1]) {
+      ctx.save();
+      ctx.globalAlpha = halfAlpha;
+      clipSlashHalf(
+        { x: fx.impactX, y: fx.impactY },
+        cutDir,
+        normal,
+        sign,
+      );
+      drawCoreOrb(
+        state.core.x + (normal.x * splitOffset * sign),
+        state.core.y + (normal.y * splitOffset * sign),
+        fx.fromRadius,
+        {
+          alpha: halfAlpha,
+          pulse: 0,
+          flash: 0,
+          wobble: Math.sin(timeMs * 0.007) * 1.1,
+        },
+      );
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.globalAlpha = clamp(0.12 + ((1 - progress) * 0.88), 0, 1);
+    ctx.strokeStyle = "rgba(255, 248, 223, 0.95)";
+    ctx.shadowColor = "rgba(255, 241, 196, 0.88)";
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(
+      fx.impactX - (cutDir.x * fx.fromRadius * 1.35),
+      fx.impactY - (cutDir.y * fx.fromRadius * 1.35),
+    );
+    ctx.lineTo(
+      fx.impactX + (cutDir.x * fx.fromRadius * 1.35),
+      fx.impactY + (cutDir.y * fx.fromRadius * 1.35),
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCoreTarget(timeMs) {
+    if (state.core.sliceFx) {
+      drawCoreSliceEffect(timeMs, state.core.sliceFx);
+      return;
+    }
+
+    drawCoreOrb(
+      state.core.x,
+      state.core.y,
+      state.core.radius,
+      {
+        wobble: Math.sin(timeMs * 0.007) * 1.6,
+      },
+    );
   }
 
   function drawPlayer() {
@@ -2190,6 +2397,49 @@
     ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
     ctx.textAlign = "center";
     ctx.fillText("Hit the shrinking core", state.core.x, state.core.y - state.core.radius - 18);
+    ctx.restore();
+  }
+
+  function drawMovementHint(timeMs) {
+    if (
+      !state.inRun ||
+      state.run.moveHintTime <= 0 ||
+      state.shot.active
+    ) {
+      return;
+    }
+
+    const player = state.player;
+    const alpha = clamp(state.run.moveHintTime / 1.4, 0, 1);
+    const pulse = 0.75 + (((Math.sin(timeMs * 0.012) + 1) * 0.5) * 0.25);
+    const target = {
+      x: state.player.radius,
+      y: ARENA.height * 0.54,
+    };
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = "rgba(255, 208, 112, 0.9)";
+    ctx.shadowColor = "rgba(255, 208, 112, 0.75)";
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -(timeMs * 0.028);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "rgba(255, 243, 208, 0.96)";
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, state.player.radius + (pulse * 5), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(106, 45, 6, 0.96)";
+    ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText("You can reposition to another wall spot first", ARENA.width * 0.5, ARENA.height - 44);
     ctx.restore();
   }
 
@@ -2420,55 +2670,57 @@
     ctx.moveTo(lane.warningStartX, lane.warningStartY);
     ctx.lineTo(lane.warningEndX, lane.warningEndY);
     ctx.stroke();
+    ctx.fillStyle = "rgba(116, 46, 14, 0.94)";
+    ctx.font = 'bold 11px "Trebuchet MS", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText(
+      "TEMP WALL",
+      (lane.warningStartX + lane.warningEndX) * 0.5,
+      (lane.warningStartY + lane.warningEndY) * 0.5 - 12,
+    );
     ctx.restore();
   }
 
-  function drawActiveArrow() {
-    const arrow = state.arrows.active;
-    if (!arrow) {
+  function drawActiveArrow(timeMs) {
+    const wall = state.arrows.active;
+    if (!wall) {
       return;
     }
 
-    const tailX = arrow.x - (arrow.dirX * 22);
-    const tailY = arrow.y - (arrow.dirY * 22);
-    const wingX = -arrow.dirY;
-    const wingY = arrow.dirX;
+    const ratio = clamp(wall.timeLeft / WALL_ACTIVE_DURATION, 0, 1);
+    const shimmer = 0.75 + (((Math.sin(timeMs * 0.018) + 1) * 0.5) * 0.25);
+    const midX = (wall.ax + wall.bx) * 0.5;
+    const midY = (wall.ay + wall.by) * 0.5;
 
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 191, 138, 0.82)";
-    ctx.shadowColor = "rgba(255, 191, 138, 0.82)";
-    ctx.shadowBlur = 11;
+    ctx.strokeStyle = `rgba(255, 199, 138, ${0.65 + (ratio * 0.2)})`;
+    ctx.shadowColor = "rgba(255, 199, 138, 0.88)";
+    ctx.shadowBlur = 13;
     ctx.lineCap = "round";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = (wall.thickness * 2) + 3;
     ctx.beginPath();
-    ctx.moveTo(tailX, tailY);
-    ctx.lineTo(arrow.x, arrow.y);
+    ctx.moveTo(wall.ax, wall.ay);
+    ctx.lineTo(wall.bx, wall.by);
     ctx.stroke();
 
-    const sideLength = 8;
-    const backX = arrow.x - (arrow.dirX * 11);
-    const backY = arrow.y - (arrow.dirY * 11);
-    ctx.fillStyle = "#ffd7a8";
+    ctx.strokeStyle = `rgba(118, 49, 15, ${0.7 + (ratio * 0.2)})`;
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = wall.thickness * 0.9;
     ctx.beginPath();
-    ctx.moveTo(arrow.x + (arrow.dirX * 9), arrow.y + (arrow.dirY * 9));
-    ctx.lineTo(backX + (wingX * sideLength), backY + (wingY * sideLength));
-    ctx.lineTo(backX - (wingX * sideLength), backY - (wingY * sideLength));
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(wall.ax, wall.ay);
+    ctx.lineTo(wall.bx, wall.by);
+    ctx.stroke();
 
-    ctx.fillStyle = "#ffc37e";
+    ctx.fillStyle = `rgba(255, 246, 211, ${0.52 + (shimmer * 0.28)})`;
     ctx.beginPath();
-    ctx.moveTo(tailX, tailY);
-    ctx.lineTo(tailX + (wingX * 6), tailY + (wingY * 6));
-    ctx.lineTo(tailX - (wingX * 6), tailY - (wingY * 6));
-    ctx.closePath();
+    ctx.arc(midX, midY, wall.thickness + 2 + (shimmer * 2), 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
   function drawArrows(timeMs) {
     drawArrowWarning(timeMs);
-    drawActiveArrow();
+    drawActiveArrow(timeMs);
   }
 
   function drawObstacle(obstacle) {
@@ -2529,6 +2781,7 @@
     drawAfterimages();
     drawPlayer();
     drawSlicePatternGuide(timeMs);
+    drawMovementHint(timeMs);
     drawAttachPulses();
     drawParticles();
     drawAimGuide();

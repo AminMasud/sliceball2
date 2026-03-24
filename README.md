@@ -1,6 +1,10 @@
-# Sliceball 2 · ![platform](https://img.shields.io/badge/platform-web_mobile-f28c28) ![runtime](https://img.shields.io/badge/runtime-vanilla_js-f7df1e) ![status](https://img.shields.io/badge/status-playable-5cb85c)
+# Sliceball 2
 
-Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through a shrinking center core while late-game hazards force tighter decisions.
+Live demo: https://sliceballninja.netlify.app/
+
+![platform](https://img.shields.io/badge/platform-web_mobile-f28c28) ![runtime](https://img.shields.io/badge/runtime-vanilla_js-f7df1e) ![status](https://img.shields.io/badge/status-playable-5cb85c)
+
+Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through a shrinking center core while spikes and temporary wall hazards force tighter decisions.
 
 ## Quick Start
 
@@ -18,9 +22,9 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 
 - The attacker starts attached to an arena wall.
 - The timer does not begin until the first real dash.
-- Each clean hit on the center core gives `+1 score`, `+1 coin`, resets the timer, and shrinks the core.
-- Defender balls move across the arena and deflect the attacker using reflection-based collision response.
-- Spikes and arrows unlock later in the run and force misses if they connect before a successful core hit.
+- Each clean hit on the center core gives `+1 score`, `+1 coin`, resets the timer, and reveals the next smaller target under the slice.
+- When the target reaches minimum size, it splits apart, disappears, and a fresh full-size core respawns.
+- Spikes and temporary wall hazards unlock later in the run and force misses if they connect before a successful core hit.
 
 ## Controls
 
@@ -31,7 +35,8 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Physics Model
 
 - Core hits use swept circle collision, so high-speed dashes still register correctly.
-- Spike contact is resolved as an immediate rebound to the launch wall.
+- Spike contact is resolved as an immediate rebound to the launch wall, and spikes are kept away from the visible target area.
+- Temporary wall hazards use line-segment collision instead of projectile motion.
 - Collision priority is based on earliest impact during the dash step instead of fixed check order.
 
 ## Project Layout
@@ -44,6 +49,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Current Build Notes
 
 - Arena is a square playfield inside a portrait layout.
-- The center target starts large and shrinks toward a minimum radius over the run.
+- The center target starts large, shrinks through layered slices, then respawns as a new orb after the minimum-size cut.
 - Difficulty ramps mainly through the shrinking core plus hazard unlocks rather than extra blocker pieces.
-- Coins, skins, and best score persist in `localStorage`.
+- The first run includes a one-time reposition hint so players understand they can move to a different wall spot before attacking.
+- Coins, skins, best score, and tutorial flags persist in `localStorage`.
