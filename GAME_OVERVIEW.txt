@@ -95,7 +95,7 @@ Purpose:
   - `85` hits
 - Temporary wall timings:
   - warning `0.78`
-  - active `1.12`
+  - active `2.0`
   - next delay random `1.9` to `3.8`
 
 
