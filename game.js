@@ -24,8 +24,10 @@
   const ARROW_RADIUS = 8;
   const ARROW_OFFSCREEN_MARGIN = 42;
   const PLAYER_RADIUS = 14;
-  const DEFENDER_RADIUS = 15;
-  const DEFENDER_MIN_SEPARATION = DEFENDER_RADIUS * 7;
+  const CORE_START_RADIUS = 74;
+  const CORE_MIN_RADIUS = 24;
+  const CORE_SHRINK_PER_HIT = 3.4;
+  const CORE_CLEARANCE_PADDING = 20;
   const DASH_MIN_DURATION = 0.08;
   const DASH_MAX_DURATION = 0.14;
   const DASH_SPEED = 4000;
@@ -180,7 +182,6 @@
     shopMessageTimeoutId: null,
     inRun: false,
     canShoot: false,
-    repositioning: false,
     player: {
       x: ARENA.width / 2,
       y: ARENA.height - PLAYER_RADIUS,
@@ -189,24 +190,13 @@
       radius: PLAYER_RADIUS,
       wall: "bottom",
     },
-    defenders: [
-      {
-        x: ARENA.width * 0.35,
-        y: ARENA.height * 0.3,
-        targetX: ARENA.width * 0.35,
-        targetY: ARENA.height * 0.3,
-        retargetAt: 0,
-        radius: DEFENDER_RADIUS,
-      },
-      {
-        x: ARENA.width * 0.65,
-        y: ARENA.height * 0.42,
-        targetX: ARENA.width * 0.65,
-        targetY: ARENA.height * 0.42,
-        retargetAt: 0,
-        radius: DEFENDER_RADIUS,
-      },
-    ],
+    core: {
+      x: ARENA.width / 2,
+      y: ARENA.height / 2,
+      radius: CORE_START_RADIUS,
+      pulse: 0,
+      flash: 0,
+    },
     aim: {
       active: false,
       pointerId: null,
@@ -242,9 +232,6 @@
       lastNinjaAt: -99999,
       coinsEarned: 0,
       difficulty: 0,
-      defenderSpeed: 74,
-      repositionSpeed: 76,
-      lineOscillation: 4,
       spikeSpeed: SPIKE_SPEED_BASE,
       obstacleUnlocked: false,
     },
@@ -260,8 +247,6 @@
     afterimages: [],
     attachPulses: [],
     effects: {
-      lineVibration: 0,
-      lineFlash: 0,
       comboBoost: 0,
       shakeTime: 0,
       shakeStrength: 0,
@@ -496,6 +481,22 @@
     return target;
   }
 
+  function getCoreRadiusForSlices(sliceCount = state.run.slices) {
+    return clamp(
+      CORE_START_RADIUS - (sliceCount * CORE_SHRINK_PER_HIT),
+      CORE_MIN_RADIUS,
+      CORE_START_RADIUS,
+    );
+  }
+
+  function getCoreExclusionRadius(entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
+    return state.core.radius + entityRadius + padding;
+  }
+
+  function isPointInsideCoreBuffer(x, y, entityRadius = 0, padding = CORE_CLEARANCE_PADDING) {
+    return distance(x, y, state.core.x, state.core.y) < getCoreExclusionRadius(entityRadius, padding);
+  }
+
   function distancePointToSegment(px, py, ax, ay, bx, by) {
     const abx = bx - ax;
     const aby = by - ay;
@@ -513,36 +514,60 @@
     return Math.hypot(px - closestX, py - closestY);
   }
 
-  function closestPointOnSegment(px, py, ax, ay, bx, by) {
-    const abx = bx - ax;
-    const aby = by - ay;
-    const lengthSq = (abx * abx) + (aby * aby);
+  function sweepCircleCollision(startA, endA, radiusA, startB, endB, radiusB) {
+    const relStartX = startA.x - startB.x;
+    const relStartY = startA.y - startB.y;
+    const relMoveX = (endA.x - startA.x) - (endB.x - startB.x);
+    const relMoveY = (endA.y - startA.y) - (endB.y - startB.y);
+    const combinedRadius = radiusA + radiusB;
+    const a = (relMoveX * relMoveX) + (relMoveY * relMoveY);
+    const b = 2 * ((relStartX * relMoveX) + (relStartY * relMoveY));
+    const c = (relStartX * relStartX) + (relStartY * relStartY) - (combinedRadius * combinedRadius);
+    let t = null;
 
-    if (lengthSq <= 0.000001) {
-      return {
-        x: ax,
-        y: ay,
-        t: 0,
-        distance: Math.hypot(px - ax, py - ay),
-      };
+    if (c <= 0) {
+      t = 0;
+    } else if (a > 0.000001) {
+      const discriminant = (b * b) - (4 * a * c);
+      if (discriminant >= 0) {
+        const sqrtDisc = Math.sqrt(discriminant);
+        const hitT = (-b - sqrtDisc) / (2 * a);
+        if (hitT >= 0 && hitT <= 1) {
+          t = hitT;
+        }
+      }
     }
 
-    const apx = px - ax;
-    const apy = py - ay;
-    const t = clamp(((apx * abx) + (apy * aby)) / lengthSq, 0, 1);
-    const x = ax + (abx * t);
-    const y = ay + (aby * t);
-    return {
-      x,
-      y,
-      t,
-      distance: Math.hypot(px - x, py - y),
-    };
-  }
+    if (t === null) {
+      return null;
+    }
 
-  function segmentHitsObstacle(a, b, obstacle, extraRadius) {
-    const hitDistance = obstacle.radius + extraRadius;
-    return distancePointToSegment(obstacle.x, obstacle.y, a.x, a.y, b.x, b.y) <= hitDistance;
+    const playerX = lerp(startA.x, endA.x, t);
+    const playerY = lerp(startA.y, endA.y, t);
+    const otherX = lerp(startB.x, endB.x, t);
+    const otherY = lerp(startB.y, endB.y, t);
+    let normal = normalize(playerX - otherX, playerY - otherY);
+
+    if (normal.x === 0 && normal.y === 0) {
+      normal = normalize(-(relMoveX), -(relMoveY));
+    }
+    if (normal.x === 0 && normal.y === 0) {
+      normal = { x: 0, y: -1 };
+    }
+
+    return {
+      t,
+      playerX,
+      playerY,
+      centerX: otherX,
+      centerY: otherY,
+      normalX: normal.x,
+      normalY: normal.y,
+      contactX: otherX + (normal.x * radiusB),
+      contactY: otherY + (normal.y * radiusB),
+      otherMoveX: endB.x - startB.x,
+      otherMoveY: endB.y - startB.y,
+    };
   }
 
   function setOverlay(name) {
@@ -922,201 +947,6 @@
     }
   }
 
-  function getDefenderAssistBias() {
-    return clamp(1 - (state.run.slices / 14), 0, 1);
-  }
-
-  function getPlayerFacingDefenderPair(anchor = state.player) {
-    const span = 68;
-    const depth = 124;
-    const tilt = 12;
-    const inset = 76;
-
-    if (anchor.wall === "top") {
-      const centerX = clamp(anchor.x, span + 40, ARENA.width - span - 40);
-      const centerY = clamp(anchor.y + depth, inset, ARENA.height - inset);
-      return [
-        { x: centerX - span, y: centerY - tilt },
-        { x: centerX + span, y: centerY + tilt },
-      ];
-    }
-
-    if (anchor.wall === "left") {
-      const centerX = clamp(anchor.x + depth, inset, ARENA.width - inset);
-      const centerY = clamp(anchor.y, span + 40, ARENA.height - span - 40);
-      return [
-        { x: centerX - tilt, y: centerY - span },
-        { x: centerX + tilt, y: centerY + span },
-      ];
-    }
-
-    if (anchor.wall === "right") {
-      const centerX = clamp(anchor.x - depth, inset, ARENA.width - inset);
-      const centerY = clamp(anchor.y, span + 40, ARENA.height - span - 40);
-      return [
-        { x: centerX + tilt, y: centerY - span },
-        { x: centerX - tilt, y: centerY + span },
-      ];
-    }
-
-    const centerX = clamp(anchor.x, span + 40, ARENA.width - span - 40);
-    const centerY = clamp(anchor.y - depth, inset, ARENA.height - inset);
-    return [
-      { x: centerX - span, y: centerY + tilt },
-      { x: centerX + span, y: centerY - tilt },
-    ];
-  }
-
-  function chooseRandomDefenderPair() {
-    for (let attempts = 0; attempts < 90; attempts += 1) {
-      const first = {
-        x: random(44, ARENA.width - 44),
-        y: random(44, ARENA.height - 44),
-      };
-      const second = {
-        x: random(44, ARENA.width - 44),
-        y: random(44, ARENA.height - 44),
-      };
-
-      if (distance(first.x, first.y, second.x, second.y) >= DEFENDER_MIN_SEPARATION) {
-        return [first, second];
-      }
-    }
-
-    return [
-      { x: ARENA.width * 0.32, y: ARENA.height * 0.35 },
-      { x: ARENA.width * 0.68, y: ARENA.height * 0.65 },
-    ];
-  }
-
-  function chooseDefenderPair() {
-    const bias = getDefenderAssistBias();
-    const randomPair = chooseRandomDefenderPair();
-    if (bias <= 0.001) {
-      return randomPair;
-    }
-
-    const guidedPair = getPlayerFacingDefenderPair();
-    return randomPair.map((point, index) => ({
-      x: lerp(point.x, guidedPair[index].x, bias),
-      y: lerp(point.y, guidedPair[index].y, bias),
-    }));
-  }
-
-  function setDefendersToPair(pair) {
-    pair.forEach((point, index) => {
-      const defender = state.defenders[index];
-      defender.x = point.x;
-      defender.y = point.y;
-      defender.targetX = point.x;
-      defender.targetY = point.y;
-      defender.retargetAt = 0;
-    });
-    enforceDefenderSeparation();
-  }
-
-  function chooseRandomWanderTarget(index) {
-    const other = state.defenders[index === 0 ? 1 : 0];
-
-    for (let attempts = 0; attempts < 60; attempts += 1) {
-      const x = random(38, ARENA.width - 38);
-      const y = random(38, ARENA.height - 38);
-
-      if (distance(x, y, other.targetX ?? other.x, other.targetY ?? other.y) < DEFENDER_MIN_SEPARATION) {
-        continue;
-      }
-
-      return { x, y };
-    }
-
-    return {
-      x: index === 0 ? ARENA.width * 0.3 : ARENA.width * 0.7,
-      y: random(38, ARENA.height - 38),
-    };
-  }
-
-  function chooseWanderTarget(index) {
-    const bias = getDefenderAssistBias();
-    const randomTarget = chooseRandomWanderTarget(index);
-    if (bias <= 0.001) {
-      return randomTarget;
-    }
-
-    const other = state.defenders[index === 0 ? 1 : 0];
-    const guidedTarget = getPlayerFacingDefenderPair()[index];
-    const blended = {
-      x: lerp(randomTarget.x, guidedTarget.x, bias),
-      y: lerp(randomTarget.y, guidedTarget.y, bias),
-    };
-    const otherTarget = {
-      x: other.targetX ?? other.x,
-      y: other.targetY ?? other.y,
-    };
-    const gap = distance(blended.x, blended.y, otherTarget.x, otherTarget.y);
-    if (gap < DEFENDER_MIN_SEPARATION) {
-      const push = normalize(blended.x - otherTarget.x, blended.y - otherTarget.y);
-      const pushDir = (push.x === 0 && push.y === 0)
-        ? normalize(guidedTarget.x - otherTarget.x, guidedTarget.y - otherTarget.y)
-        : push;
-      blended.x = otherTarget.x + (pushDir.x * DEFENDER_MIN_SEPARATION);
-      blended.y = otherTarget.y + (pushDir.y * DEFENDER_MIN_SEPARATION);
-    }
-
-    return {
-      x: clamp(blended.x, 38, ARENA.width - 38),
-      y: clamp(blended.y, 38, ARENA.height - 38),
-    };
-  }
-
-  function enforceDefenderSeparation() {
-    const first = state.defenders[0];
-    const second = state.defenders[1];
-    let dx = second.x - first.x;
-    let dy = second.y - first.y;
-    let gap = Math.hypot(dx, dy);
-
-    if (gap >= DEFENDER_MIN_SEPARATION) {
-      return;
-    }
-
-    if (gap < 0.0001) {
-      gap = 0.0001;
-      dx = 1;
-      dy = 0;
-    }
-
-    const nx = dx / gap;
-    const ny = dy / gap;
-    const overlap = DEFENDER_MIN_SEPARATION - gap;
-    const pushX = nx * (overlap / 2);
-    const pushY = ny * (overlap / 2);
-
-    first.x -= pushX;
-    first.y -= pushY;
-    second.x += pushX;
-    second.y += pushY;
-
-    first.x = clamp(first.x, first.radius, ARENA.width - first.radius);
-    first.y = clamp(first.y, first.radius, ARENA.height - first.radius);
-    second.x = clamp(second.x, second.radius, ARENA.width - second.radius);
-    second.y = clamp(second.y, second.radius, ARENA.height - second.radius);
-  }
-
-  function scheduleDefenderTarget(index, baseTime = performance.now()) {
-    const defender = state.defenders[index];
-    const target = chooseWanderTarget(index);
-    const retargetDelaySec = Math.max(0.55, 1.8 - (state.run.difficulty * 0.012)) + random(0.15, 0.55);
-    defender.targetX = target.x;
-    defender.targetY = target.y;
-    defender.retargetAt = baseTime + (retargetDelaySec * 1000);
-  }
-
-  function planDefenderReposition() {
-    scheduleDefenderTarget(0);
-    scheduleDefenderTarget(1);
-    state.repositioning = false;
-  }
-
   function attachPlayerToWall(x, y, wall = null) {
     state.player.x = x;
     state.player.y = y;
@@ -1132,9 +962,7 @@
   function updateDifficulty() {
     const d = state.run.slices;
     state.run.difficulty = d;
-    state.run.defenderSpeed = 72 + Math.min(180, d * 1.55);
-    state.run.repositionSpeed = 74 + Math.min(195, d * 1.75);
-    state.run.lineOscillation = 4 + Math.min(24, d * 0.13);
+    state.core.radius = getCoreRadiusForSlices(d);
     state.run.spikeSpeed = SPIKE_SPEED_BASE + Math.min(SPIKE_SPEED_MAX - SPIKE_SPEED_BASE, d * SPIKE_SPEED_SCALE);
   }
 
@@ -1158,6 +986,10 @@
       const x = random(radius + 14, ARENA.width - radius - 14);
       const y = random(radius + 14, ARENA.height - radius - 14);
 
+      if (isPointInsideCoreBuffer(x, y, radius, 26)) {
+        continue;
+      }
+
       const tooClose = existingObstacles.some((other) => {
         return distance(x, y, other.x, other.y) < getSpikeSeparation(radius, other.radius);
       });
@@ -1171,6 +1003,8 @@
       return {
         x,
         y,
+        prevX: x,
+        prevY: y,
         vx: velocity.vx,
         vy: velocity.vy,
         radius,
@@ -1185,6 +1019,8 @@
     return {
       x: clamp(fallbackX, radius + 8, ARENA.width - radius - 8),
       y: clamp(fallbackY, radius + 8, ARENA.height - radius - 8),
+      prevX: clamp(fallbackX, radius + 8, ARENA.width - radius - 8),
+      prevY: clamp(fallbackY, radius + 8, ARENA.height - radius - 8),
       vx: fallbackVelocity.vx,
       vy: fallbackVelocity.vy,
       radius,
@@ -1329,7 +1165,7 @@
     registerMiss();
   }
 
-  function triggerObstacleBounce(hitPoint = null) {
+  function triggerObstacleBounce(hit = null) {
     if (state.shot.hitObstacle || !state.shot.active) {
       return;
     }
@@ -1339,112 +1175,30 @@
       y: state.shot.startY,
       wall: getWallAtPoint(state.shot.startX, state.shot.startY, state.player.radius),
     }, state.player.radius);
-    const impact = hitPoint ?? { x: state.player.x, y: state.player.y };
-    const bounceDistance = distance(impact.x, impact.y, bounceTarget.x, bounceTarget.y);
+    const impact = hit ?? {
+      playerX: state.player.x,
+      playerY: state.player.y,
+      contactX: state.player.x,
+      contactY: state.player.y,
+    };
+    const bounceDistance = distance(impact.playerX, impact.playerY, bounceTarget.x, bounceTarget.y);
 
     state.shot.hitObstacle = true;
-    state.shot.startX = impact.x;
-    state.shot.startY = impact.y;
+    state.player.x = impact.playerX;
+    state.player.y = impact.playerY;
+    state.shot.startX = impact.playerX;
+    state.shot.startY = impact.playerY;
     state.shot.endX = bounceTarget.x;
     state.shot.endY = bounceTarget.y;
     state.shot.elapsed = 0;
     state.shot.duration = clamp(bounceDistance / (DASH_SPEED * 1.15), 0.08, DASH_MAX_DURATION);
 
-    emitSliceSparks(impact, "rgba(244, 186, 110, 0.95)", 16);
+    emitSliceSparks({
+      x: impact.contactX,
+      y: impact.contactY,
+    }, "rgba(244, 186, 110, 0.95)", 16);
     triggerFlash("rgba(255, 194, 120, 0.32)", 0.5, 0.1);
     triggerShake(0.14, 5);
-  }
-
-  function triggerDefenderBounce(hit, previous) {
-    if (state.shot.hitObstacle || !state.shot.active) {
-      return;
-    }
-
-    const impact = {
-      x: clamp(hit.impactX, state.player.radius, ARENA.width - state.player.radius),
-      y: clamp(hit.impactY, state.player.radius, ARENA.height - state.player.radius),
-    };
-    const incoming = normalize(
-      state.player.x - previous.x,
-      state.player.y - previous.y,
-    );
-    const fallbackIncoming = normalize(
-      state.shot.endX - state.shot.startX,
-      state.shot.endY - state.shot.startY,
-    );
-    const travel = (incoming.x === 0 && incoming.y === 0)
-      ? fallbackIncoming
-      : incoming;
-
-    let normal = normalize(
-      impact.x - hit.centerX,
-      impact.y - hit.centerY,
-    );
-
-    if (normal.x === 0 && normal.y === 0) {
-      normal = normalize(-(travel.y), travel.x);
-    }
-
-    let dot = (travel.x * normal.x) + (travel.y * normal.y);
-    if (dot > 0) {
-      normal.x *= -1;
-      normal.y *= -1;
-      dot = (travel.x * normal.x) + (travel.y * normal.y);
-    }
-
-    let reflected = normalize(
-      travel.x - (2 * dot * normal.x),
-      travel.y - (2 * dot * normal.y),
-    );
-    if (reflected.x === 0 && reflected.y === 0) {
-      reflected = { x: -travel.x, y: -travel.y };
-    }
-
-    const deflectStart = {
-      x: impact.x + (reflected.x * 1.5),
-      y: impact.y + (reflected.y * 1.5),
-    };
-    let bounceTarget = rayToWallTarget(deflectStart, reflected, state.player.radius);
-    if (!bounceTarget) {
-      bounceTarget = clampToWallBounds({
-        x: state.shot.startX,
-        y: state.shot.startY,
-        wall: getWallAtPoint(state.shot.startX, state.shot.startY, state.player.radius),
-      }, state.player.radius);
-    }
-
-    const bounceDistance = distance(impact.x, impact.y, bounceTarget.x, bounceTarget.y);
-    state.shot.hitObstacle = true;
-    state.shot.startX = impact.x;
-    state.shot.startY = impact.y;
-    state.shot.endX = bounceTarget.x;
-    state.shot.endY = bounceTarget.y;
-    state.shot.elapsed = 0;
-    state.shot.duration = clamp(bounceDistance / (DASH_SPEED * 1.05), 0.06, DASH_MAX_DURATION);
-
-    emitSliceSparks(impact, "rgba(255, 152, 116, 0.96)", 18);
-    triggerFlash("rgba(255, 153, 115, 0.3)", 0.46, 0.09);
-    triggerShake(0.12, 4);
-  }
-
-  function signedSide(point, lineA, lineB) {
-    const normalX = -(lineB.y - lineA.y);
-    const normalY = lineB.x - lineA.x;
-    return ((point.x - lineA.x) * normalX) + ((point.y - lineA.y) * normalY);
-  }
-
-  function signedDistanceToLine(point, lineA, lineB) {
-    const dx = lineB.x - lineA.x;
-    const dy = lineB.y - lineA.y;
-    const length = Math.hypot(dx, dy);
-
-    if (length < 0.000001) {
-      return 0;
-    }
-
-    const normalX = -dy / length;
-    const normalY = dx / length;
-    return ((point.x - lineA.x) * normalX) + ((point.y - lineA.y) * normalY);
   }
 
   function segmentIntersection(a, b, c, d) {
@@ -1473,131 +1227,32 @@
     };
   }
 
-  function detectSlice(previous, next) {
-    const lineA = { x: state.defenders[0].x, y: state.defenders[0].y };
-    const lineB = { x: state.defenders[1].x, y: state.defenders[1].y };
-    return segmentIntersection(previous, next, lineA, lineB) || null;
-  }
-
-  function getDefenderSegmentSnapshot() {
-    return {
-      ax: state.defenders[0].x,
-      ay: state.defenders[0].y,
-      bx: state.defenders[1].x,
-      by: state.defenders[1].y,
-    };
-  }
-
-  function detectSliceDynamic(previous, next, linePrevious, lineCurrent) {
-    const prevLine = linePrevious ?? lineCurrent ?? getDefenderSegmentSnapshot();
-    const currLine = lineCurrent ?? prevLine;
-    const staticHit = segmentIntersection(
+  function detectCoreHit(previous, next) {
+    return sweepCircleCollision(
       previous,
       next,
-      { x: currLine.ax, y: currLine.ay },
-      { x: currLine.bx, y: currLine.by },
+      state.player.radius,
+      { x: state.core.x, y: state.core.y },
+      { x: state.core.x, y: state.core.y },
+      state.core.radius,
     );
-
-    if (staticHit) {
-      return staticHit;
-    }
-
-    const sampleCount = 7;
-    let prevSamplePoint = { x: previous.x, y: previous.y };
-    let prevLineA = { x: prevLine.ax, y: prevLine.ay };
-    let prevLineB = { x: prevLine.bx, y: prevLine.by };
-
-    for (let i = 1; i <= sampleCount; i += 1) {
-      const t = i / sampleCount;
-      const samplePoint = {
-        x: lerp(previous.x, next.x, t),
-        y: lerp(previous.y, next.y, t),
-      };
-      const lineA = {
-        x: lerp(prevLine.ax, currLine.ax, t),
-        y: lerp(prevLine.ay, currLine.ay, t),
-      };
-      const lineB = {
-        x: lerp(prevLine.bx, currLine.bx, t),
-        y: lerp(prevLine.by, currLine.by, t),
-      };
-      const impact = (
-        segmentIntersection(prevSamplePoint, samplePoint, lineA, lineB) ||
-        segmentIntersection(prevSamplePoint, samplePoint, prevLineA, prevLineB)
-      );
-
-      if (impact) {
-        return impact;
-      }
-
-      prevSamplePoint = samplePoint;
-      prevLineA = lineA;
-      prevLineB = lineB;
-    }
-
-    return null;
   }
 
-  function detectDefenderBallHit(previous, next, linePrevious, lineCurrent) {
-    const prevLine = linePrevious ?? lineCurrent ?? getDefenderSegmentSnapshot();
-    const currLine = lineCurrent ?? prevLine;
-    const defenders = [
-      {
-        prevX: prevLine.ax,
-        prevY: prevLine.ay,
-        x: currLine.ax,
-        y: currLine.ay,
-        radius: state.defenders[0].radius,
-      },
-      {
-        prevX: prevLine.bx,
-        prevY: prevLine.by,
-        x: currLine.bx,
-        y: currLine.by,
-        radius: state.defenders[1].radius,
-      },
-    ];
-
+  function detectObstacleHit(previous, next) {
     let bestHit = null;
 
-    for (const defender of defenders) {
-      const hitDistance = defender.radius + state.player.radius;
-      const currentClosest = closestPointOnSegment(
-        defender.x,
-        defender.y,
-        previous.x,
-        previous.y,
-        next.x,
-        next.y,
+    for (const obstacle of state.obstacles) {
+      const hit = sweepCircleCollision(
+        previous,
+        next,
+        state.player.radius,
+        { x: obstacle.prevX ?? obstacle.x, y: obstacle.prevY ?? obstacle.y },
+        { x: obstacle.x, y: obstacle.y },
+        obstacle.radius,
       );
-      const previousClosest = closestPointOnSegment(
-        defender.prevX,
-        defender.prevY,
-        previous.x,
-        previous.y,
-        next.x,
-        next.y,
-      );
-      const candidate = currentClosest.distance <= previousClosest.distance
-        ? {
-            impactX: currentClosest.x,
-            impactY: currentClosest.y,
-            centerX: defender.x,
-            centerY: defender.y,
-            t: currentClosest.t,
-            distance: currentClosest.distance,
-          }
-        : {
-            impactX: previousClosest.x,
-            impactY: previousClosest.y,
-            centerX: defender.prevX,
-            centerY: defender.prevY,
-            t: previousClosest.t,
-            distance: previousClosest.distance,
-          };
 
-      if (candidate.distance <= hitDistance && (!bestHit || candidate.t < bestHit.t)) {
-        bestHit = candidate;
+      if (hit && (!bestHit || hit.t < bestHit.t)) {
+        bestHit = hit;
       }
     }
 
@@ -1613,7 +1268,7 @@
     showBanner("MISS", "miss");
   }
 
-  function onSlice(impactPoint) {
+  function onCoreHit(impactPoint) {
     if (state.shot.sliced) {
       return;
     }
@@ -1644,15 +1299,15 @@
     unlockObstaclesIfNeeded();
     unlockArrowHazardsIfNeeded();
 
-    const lineMidpoint = impactPoint ?? {
-      x: (state.defenders[0].x + state.defenders[1].x) / 2,
-      y: (state.defenders[0].y + state.defenders[1].y) / 2,
+    const coreImpact = impactPoint ?? {
+      x: state.core.x,
+      y: state.core.y,
     };
 
-    emitSliceSparks(lineMidpoint, "rgba(237, 249, 255, 0.95)", 18);
+    state.core.pulse = 1;
+    state.core.flash = 1;
+    emitSliceSparks(coreImpact, "rgba(255, 249, 224, 0.98)", 18);
     const comboBoost = state.effects.comboBoost;
-    state.effects.lineVibration = 11 + (state.run.lineOscillation * 0.9) + (comboBoost * 6.5);
-    state.effects.lineFlash = 1;
     triggerShake(0.22 + (comboBoost * 0.04), 8 + (state.run.difficulty * 0.04) + (comboBoost * 4.8));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9 + (comboBoost * 0.08), 0.12 + (comboBoost * 0.01));
     const ninjaReady = (
@@ -1664,7 +1319,7 @@
       state.run.lastNinjaAt = now;
       triggerNinjaSkills();
     } else {
-      showBanner("SLICE!", "slice");
+      showBanner("HIT!", "slice");
     }
   }
 
@@ -1751,12 +1406,11 @@
     state.arrows.preview = null;
     state.arrows.active = null;
     state.particles.length = 0;
-    state.effects.lineVibration = 0;
-    state.effects.lineFlash = 0;
+    state.core.pulse = 0;
+    state.core.flash = 0;
     state.effects.shakeTime = 0;
     state.effects.shakeStrength = 0;
     state.effects.flashTime = 0;
-    state.repositioning = false;
     state.canShoot = true;
     state.shot.active = false;
     state.shot.sliced = false;
@@ -1768,8 +1422,6 @@
     state.aim.active = false;
     updateDifficulty();
     resetPlayerToStartWall();
-    setDefendersToPair(chooseDefenderPair());
-    planDefenderReposition();
     state.dashTrail.length = 0;
     state.afterimages.length = 0;
     state.attachPulses.length = 0;
@@ -1847,39 +1499,6 @@
     state.canShoot = false;
   }
 
-  function updateReposition(dt) {
-    if (!state.inRun) {
-      return;
-    }
-
-    const now = performance.now();
-    const repositionSpeed = state.run.defenderSpeed;
-
-    state.defenders.forEach((defender, index) => {
-      if (!Number.isFinite(defender.retargetAt) || now >= defender.retargetAt) {
-        scheduleDefenderTarget(index, now);
-      }
-
-      const dx = defender.targetX - defender.x;
-      const dy = defender.targetY - defender.y;
-      const distanceToTarget = Math.hypot(dx, dy);
-
-      if (distanceToTarget > 0.6) {
-        const step = Math.min(distanceToTarget, repositionSpeed * dt);
-        const dirX = dx / distanceToTarget;
-        const dirY = dy / distanceToTarget;
-        defender.x += dirX * step;
-        defender.y += dirY * step;
-      } else {
-        defender.x = defender.targetX;
-        defender.y = defender.targetY;
-        scheduleDefenderTarget(index, now + 90);
-      }
-    });
-
-    enforceDefenderSeparation();
-  }
-
   function updateObstacles(dt) {
     if (!state.run.obstacleUnlocked || !state.obstacles.length) {
       return;
@@ -1887,6 +1506,8 @@
 
     const targetSpikeSpeed = state.run.spikeSpeed;
     state.obstacles.forEach((obstacle) => {
+      obstacle.prevX = obstacle.x;
+      obstacle.prevY = obstacle.y;
       const direction = normalize(obstacle.vx, obstacle.vy);
       if (direction.x === 0 && direction.y === 0) {
         const angle = random(0, Math.PI * 2);
@@ -2012,7 +1633,7 @@
     }
   }
 
-  function updateShot(dt, linePrevious, lineCurrent) {
+  function updateShot(dt) {
     if (!state.shot.active) {
       return;
     }
@@ -2063,21 +1684,6 @@
       state.shot.afterimageCooldown = 0.018;
     }
 
-    if (state.run.obstacleUnlocked && !state.shot.hitObstacle) {
-      const obstacleHit = state.obstacles.some((obstacle) => {
-        return segmentHitsObstacle(
-          previous,
-          { x: state.player.x, y: state.player.y },
-          obstacle,
-          state.player.radius,
-        );
-      });
-
-      if (obstacleHit) {
-        triggerObstacleBounce({ x: state.player.x, y: state.player.y });
-      }
-    }
-
     if (!state.shot.hitObstacle && state.arrows.active) {
       const arrow = state.arrows.active;
       const dashSegmentEnd = { x: state.player.x, y: state.player.y };
@@ -2116,21 +1722,40 @@
     }
 
     if (!state.shot.sliced && !state.shot.hitObstacle) {
-      const sliceImpact = detectSliceDynamic(previous, state.player, linePrevious, lineCurrent);
-      if (sliceImpact) {
-        onSlice(sliceImpact);
-      }
-    }
+      const dashEnd = { x: state.player.x, y: state.player.y };
+      const events = [];
 
-    if (!state.shot.sliced && !state.shot.hitObstacle) {
-      const defenderHit = detectDefenderBallHit(
-        previous,
-        { x: state.player.x, y: state.player.y },
-        linePrevious,
-        lineCurrent,
-      );
-      if (defenderHit) {
-        triggerDefenderBounce(defenderHit, previous);
+      const coreHit = detectCoreHit(previous, dashEnd);
+      if (coreHit) {
+        events.push({ type: "core", hit: coreHit });
+      }
+
+      if (state.run.obstacleUnlocked && state.obstacles.length) {
+        const obstacleHit = detectObstacleHit(previous, dashEnd);
+        if (obstacleHit) {
+          events.push({ type: "obstacle", hit: obstacleHit });
+        }
+      }
+
+      if (events.length) {
+        const priorities = { core: 0, obstacle: 1 };
+        events.sort((first, second) => {
+          const delta = first.hit.t - second.hit.t;
+          if (Math.abs(delta) > 0.0001) {
+            return delta;
+          }
+          return priorities[first.type] - priorities[second.type];
+        });
+
+        const event = events[0];
+        if (event.type === "core") {
+          onCoreHit({
+            x: event.hit.contactX,
+            y: event.hit.contactY,
+          });
+        } else {
+          triggerObstacleBounce(event.hit);
+        }
       }
     }
 
@@ -2165,8 +1790,8 @@
   }
 
   function updateEffects(dt) {
-    state.effects.lineVibration = Math.max(0, state.effects.lineVibration - (dt * 33));
-    state.effects.lineFlash = Math.max(0, state.effects.lineFlash - (dt * 4.4));
+    state.core.pulse = Math.max(0, state.core.pulse - (dt * 3.6));
+    state.core.flash = Math.max(0, state.core.flash - (dt * 4.6));
     state.effects.shakeTime = Math.max(0, state.effects.shakeTime - dt);
 
     if (state.effects.shakeTime <= 0) {
@@ -2232,11 +1857,8 @@
       return;
     }
 
-    const lineBeforeMove = getDefenderSegmentSnapshot();
-    updateReposition(dt);
-    const lineAfterMove = getDefenderSegmentSnapshot();
     updateObstacles(dt);
-    updateShot(dt, lineBeforeMove, lineAfterMove);
+    updateShot(dt);
     updateArrows(dt);
     updateParticles(dt);
   }
@@ -2250,13 +1872,14 @@
     ctx.fillRect(0, 0, ARENA.width, ARENA.height);
 
     ctx.save();
+    const core = state.core;
     const centerGlow = ctx.createRadialGradient(
-      ARENA.width * 0.5,
-      ARENA.height * 0.42,
+      core.x,
+      core.y - (core.radius * 0.2),
       18,
-      ARENA.width * 0.5,
-      ARENA.height * 0.42,
-      ARENA.width * 0.72,
+      core.x,
+      core.y,
+      core.radius * 3.2,
     );
     centerGlow.addColorStop(0, "rgba(255, 255, 255, 0.62)");
     centerGlow.addColorStop(0.55, "rgba(255, 255, 255, 0.22)");
@@ -2274,11 +1897,11 @@
     }
 
     const vignette = ctx.createRadialGradient(
-      ARENA.width * 0.5,
-      ARENA.height * 0.48,
-      ARENA.width * 0.28,
-      ARENA.width * 0.5,
-      ARENA.height * 0.48,
+      core.x,
+      core.y,
+      core.radius * 1.8,
+      core.x,
+      core.y,
       ARENA.width * 0.82,
     );
     vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
@@ -2327,105 +1950,69 @@
     ctx.restore();
   }
 
-  function drawDefenderBall(defender) {
-    const gradient = ctx.createRadialGradient(
-      defender.x - 4,
-      defender.y - 5,
-      2,
-      defender.x,
-      defender.y,
-      defender.radius,
-    );
-    gradient.addColorStop(0, "#fff4ec");
-    gradient.addColorStop(1, "#ff7a68");
-
-    ctx.save();
-    ctx.fillStyle = gradient;
-    ctx.shadowColor = "rgba(255, 122, 104, 0.55)";
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.arc(defender.x, defender.y, defender.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawEnergyLine(timeMs) {
-    const first = state.defenders[0];
-    const second = state.defenders[1];
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    const length = Math.hypot(dx, dy);
-    if (length < 0.000001) {
-      return;
-    }
-
-    const vibe = state.effects.lineVibration;
-    const flash = state.effects.lineFlash;
+  function drawCoreTarget(timeMs) {
+    const core = state.core;
     const comboBoost = state.effects.comboBoost;
+    const pulse = state.core.pulse;
+    const flash = state.core.flash;
+    const wobble = Math.sin(timeMs * 0.007) * 1.6;
+    const displayRadius = core.radius + wobble + (pulse * 6);
+    const auraRadius = displayRadius + 16 + (comboBoost * 2.2);
 
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(255, 122, 104, 0.9)";
-    ctx.shadowColor = `rgba(255, 122, 104, ${0.28 + (flash * 0.5)})`;
-    ctx.shadowBlur = 14 + (flash * 12) + (comboBoost * 8);
-    ctx.lineWidth = 4 + (comboBoost * 0.8);
-    const shouldZigzag = vibe > 0.08;
-
-    if (!shouldZigzag) {
-      ctx.beginPath();
-      ctx.moveTo(first.x, first.y);
-      ctx.lineTo(second.x, second.y);
-      ctx.stroke();
-      ctx.restore();
-      return;
-    }
-
-    const normalX = -dy / length;
-    const normalY = dx / length;
-    const segments = 16;
-    const amplitude = 2.4 + (state.run.lineOscillation * 0.22) + vibe + (comboBoost * 2.8);
-    const phase = timeMs * 0.018;
+    const aura = ctx.createRadialGradient(
+      core.x,
+      core.y,
+      displayRadius * 0.2,
+      core.x,
+      core.y,
+      auraRadius,
+    );
+    aura.addColorStop(0, `rgba(255, 246, 215, ${0.28 + (flash * 0.14)})`);
+    aura.addColorStop(0.55, `rgba(255, 181, 86, ${0.18 + (flash * 0.16)})`);
+    aura.addColorStop(1, "rgba(255, 181, 86, 0)");
+    ctx.fillStyle = aura;
     ctx.beginPath();
-    for (let i = 0; i <= segments; i += 1) {
-      const t = i / segments;
-      const baseX = lerp(first.x, second.x, t);
-      const baseY = lerp(first.y, second.y, t);
-      const zig = i % 2 === 0 ? -1 : 1;
-      const wave = Math.sin(phase + (t * 17));
-      const offset = ((zig * 0.6) + (wave * 0.4)) * amplitude;
-      const x = baseX + (normalX * offset);
-      const y = baseY + (normalY * offset);
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
+    ctx.arc(core.x, core.y, auraRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    const orb = ctx.createRadialGradient(
+      core.x - (displayRadius * 0.32),
+      core.y - (displayRadius * 0.36),
+      Math.max(6, displayRadius * 0.14),
+      core.x,
+      core.y,
+      displayRadius,
+    );
+    orb.addColorStop(0, "#fffef1");
+    orb.addColorStop(0.2, "#ffe8a9");
+    orb.addColorStop(0.58, "#ffb346");
+    orb.addColorStop(1, "#d96716");
+    ctx.fillStyle = orb;
+    ctx.shadowColor = `rgba(255, 173, 68, ${0.35 + (flash * 0.25)})`;
+    ctx.shadowBlur = 20 + (pulse * 10) + (comboBoost * 5);
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, displayRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(127, 56, 12, ${0.6 + (flash * 0.3)})`;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, displayRadius, 0, Math.PI * 2);
     ctx.stroke();
 
-    if (flash > 0) {
-      ctx.strokeStyle = `rgba(255, 247, 235, ${flash})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i <= segments; i += 1) {
-        const t = i / segments;
-        const baseX = lerp(first.x, second.x, t);
-        const baseY = lerp(first.y, second.y, t);
-        const zig = i % 2 === 0 ? -1 : 1;
-        const wave = Math.sin(phase + (t * 18));
-        const offset = ((zig * 0.45) + (wave * 0.35)) * amplitude;
-        const x = baseX + (normalX * offset);
-        const y = baseY + (normalY * offset);
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-      ctx.stroke();
-    }
+    ctx.strokeStyle = `rgba(255, 247, 224, ${0.4 + (flash * 0.28)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, Math.max(10, displayRadius * 0.72), 0, Math.PI * 2);
+    ctx.stroke();
 
+    ctx.strokeStyle = `rgba(255, 239, 200, ${0.26 + (pulse * 0.18)})`;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc(core.x, core.y, displayRadius + 10 + (pulse * 8), 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -2540,19 +2127,8 @@
       return;
     }
 
-    const first = state.defenders[0];
-    const second = state.defenders[1];
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    const length = Math.hypot(dx, dy);
-    if (length < 0.0001) {
-      return;
-    }
-
     const player = state.player;
-    const midX = (first.x + second.x) * 0.5;
-    const midY = (first.y + second.y) * 0.5;
-    const guideDir = normalize(midX - player.x, midY - player.y);
+    const guideDir = normalize(state.core.x - player.x, state.core.y - player.y);
     if (guideDir.x === 0 && guideDir.y === 0) {
       return;
     }
@@ -2561,7 +2137,7 @@
       { x: player.x, y: player.y },
       guideDir,
       state.player.radius,
-    ) ?? { x: midX, y: midY };
+    ) ?? { x: state.core.x, y: state.core.y };
     const alpha = state.run.timerStarted
       ? clamp(state.run.guideTime / 0.85, 0, 1)
       : 1;
@@ -2592,7 +2168,7 @@
 
     ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
     ctx.beginPath();
-    ctx.arc(midX, midY, 7 + (pulse * 4), 0, Math.PI * 2);
+    ctx.arc(state.core.x, state.core.y, Math.max(10, state.core.radius * 0.18) + (pulse * 5), 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "rgba(255, 174, 52, 0.98)";
@@ -2613,7 +2189,7 @@
     ctx.fillStyle = "rgba(106, 45, 6, 0.94)";
     ctx.font = 'bold 12px "Trebuchet MS", sans-serif';
     ctx.textAlign = "center";
-    ctx.fillText("Slice through the line", midX, midY - 26);
+    ctx.fillText("Hit the shrinking core", state.core.x, state.core.y - state.core.radius - 18);
     ctx.restore();
   }
 
@@ -2946,9 +2522,7 @@
     }
 
     drawBackdrop(timeMs);
-    drawEnergyLine(timeMs);
-    drawDefenderBall(state.defenders[0]);
-    drawDefenderBall(state.defenders[1]);
+    drawCoreTarget(timeMs);
     drawObstacles();
     drawArrows(timeMs);
     drawDashTrail();

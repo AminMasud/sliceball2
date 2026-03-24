@@ -1,34 +1,49 @@
-# Line-Slice Balls
+# Sliceball 2 · ![platform](https://img.shields.io/badge/platform-web_mobile-f28c28) ![runtime](https://img.shields.io/badge/runtime-vanilla_js-f7df1e) ![status](https://img.shields.io/badge/status-playable-5cb85c)
 
-Quick static web demo for a turn-based line-hit physics game.
+Sliceball 2 is a mobile-first endless arcade game about swiping wall-to-wall dashes through a shrinking center core while late-game hazards force tighter decisions.
 
-## Run
+## Quick Start
 
 Open `index.html` in a browser.
 
-This project ships with a prebuilt `game.js` bundle so it can run when opened directly from `file://` in a browser.
+This project ships with a prebuilt `game.js` bundle, so it runs directly from `file://` without a dev server.
 
 If you change files under `src/`, rebuild the bundle with:
 
-`npx --yes esbuild src\\main.js --bundle --format=iife --platform=browser --outfile=game.js`
+```powershell
+npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfile=game.js
+```
 
-## Rules in This MVP
+## Gameplay
 
-- The player places two defenders first, then one attacker in the lower half.
-- The CPU placement is hidden until the player finishes setup, then it is placed randomly in the upper half.
-- The two defenders are always the only pieces connected by the line.
-- Any piece can move on its turn, but only the attacker can score.
-- A point counts only when the attacker crosses both its own defender line and the opponent defender line in the same shot.
-- First side to 3 points wins.
+- The attacker starts attached to an arena wall.
+- The timer does not begin until the first real dash.
+- Each clean hit on the center core gives `+1 score`, `+1 coin`, resets the timer, and shrinks the core.
+- Defender balls move across the arena and deflect the attacker using reflection-based collision response.
+- Spikes and arrows unlock later in the run and force misses if they connect before a successful core hit.
 
 ## Controls
 
-- Tap two positions for defenders, then one position for the triangle attacker.
-- Tap any of your placed pieces to select it for the turn.
-- Drag backward to set direction and power.
-- Release to shoot.
+- Touch anywhere on the arena and drag to choose a wall-to-wall dash.
+- Release to launch.
+- Reposition off the walls and aim through the center before the timer expires.
 
-## Notes
+## Physics Model
 
-- The demo uses custom lightweight physics on a 2D canvas.
-- Balls stay where they land, so defender movement changes the line over time.
+- Core hits use swept circle collision, so high-speed dashes still register correctly.
+- Spike contact is resolved as an immediate rebound to the launch wall.
+- Collision priority is based on earliest impact during the dash step instead of fixed check order.
+
+## Project Layout
+
+- `index.html`: portrait mobile shell, HUD, overlays
+- `styles.css`: wood/jungle UI styling and overlay presentation
+- `game.js`: active runtime, gameplay loop, rendering, collision handling, hazards
+- `src/`: older source files that are not the active runtime path for this build
+
+## Current Build Notes
+
+- Arena is a square playfield inside a portrait layout.
+- The center target starts large and shrinks toward a minimum radius over the run.
+- Difficulty ramps mainly through the shrinking core plus hazard unlocks rather than extra blocker pieces.
+- Coins, skins, and best score persist in `localStorage`.

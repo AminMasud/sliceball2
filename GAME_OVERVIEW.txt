@@ -1,113 +1,111 @@
-LINE SLICE BALLS
+SLICEBALL 2
 GAME OVERVIEW (CURRENT BUILD)
 
 1) PROJECT SUMMARY
 - Platform: Web, mobile-first portrait layout
 - Stack: HTML + CSS + JavaScript
 - Renderer: Canvas 2D
-- Runtime entry: game.js loaded by index.html
+- Runtime entry: `game.js` loaded by `index.html`
 - Mode: Endless single-player arcade
 
 
 2) CORE GAME LOOP
 1. Attacker starts attached to a wall.
-2. Opening tutorial line shows the intended slice path from the attacker.
+2. Opening tutorial guide shows a valid path from the attacker to the center core.
 3. Survival timer does not start until the player's first real dash.
 4. Player swipes to choose a wall-to-wall dash path.
-5. If dash path intersects the moving defender line, it counts as a slice.
-6. Score, combo, coins, and timer update.
-7. Defenders and hazards continue moving.
+5. If the dash reaches the center core before another collision resolves first, it counts as a successful hit.
+6. Score, combo, coins, timer, and core radius update.
+7. Hazards continue moving and the target keeps shrinking.
 8. Run ends when timer reaches 0.
 
 
-3) MOVEMENT MODEL
+3) CENTER CORE TARGET
+- The main objective is a large orb fixed at the middle of the arena.
+- Core behavior:
+  - starts large
+  - shrinks after every successful hit
+  - stops shrinking at a minimum radius
+- Successful core hit reward:
+  - `+1` score
+  - `+1` coin
+  - combo increment
+  - timer reset to `3.0` seconds
+
+
+4) MOVEMENT MODEL
 - Attacker:
-  - Wall-attached while idle.
-  - No free movement inside the arena.
-  - Very fast dash travel.
-  - Dash duration is short (~0.08 to 0.14 sec).
-  - Post-dash attach pulse on wall impact.
+  - wall-attached while idle
+  - no free movement inside the arena
+  - very fast dash travel
+  - dash duration is short (`~0.08` to `0.14 sec`)
+  - post-dash attach pulse on wall impact
 - Dash cooldown:
-  - 0.15 sec safety cooldown between dashes.
+  - `0.15 sec` safety cooldown between dashes
 - Dash target:
-  - Always resolves to a wall landing point based on swipe direction.
+  - always resolves to a wall landing point based on swipe direction
 
 
-4) INPUT / AIM / TUTORIAL
+5) INPUT / AIM / TUTORIAL
 - Touch or swipe can begin from anywhere in the arena.
 - Aim preview shows:
   - full projected dash path
   - wall landing marker
 - Opening tutorial guide:
   - starts from the attacker
-  - points through the defender line toward a valid slice path
+  - points through the center core toward a valid wall target
   - stays visible until the first actual launch
 
 
-5) SLICE DETECTION
-- Slice is path-based:
-  - If the dash segment intersects the defender segment, it is a slice.
-  - Dynamic detection is used while defenders move.
-- Valid slice takes priority over defender-ball bounce:
-  - if the dash angle would pass through the line and slice it, the slice is awarded
-  - defender-ball bounce only triggers when the dash does not already qualify as a slice
-- Slice reward:
-  - +1 score
-  - +1 coin
-  - combo increment
-  - timer reset to 3.0 seconds
+6) COLLISION / PHYSICS MODEL
+- Core hits use swept circle collision.
+- Spike hits use swept moving-circle collision.
+- Collision order:
+  - earliest impact during the dash step wins
+  - tie-break currently favors the core target over hazards
+- Spike reflection:
+  - still rebounds the attacker back toward the launch wall
+- Arrow hit:
+  - counts as a miss
 
 
-6) DEFENDERS / LINE
-- Two defender balls move continuously through the arena.
-- Defender balls enforce a minimum separation distance.
-- Defender line visuals:
-  - straight by default
-  - vibrates / flashes on successful slice
-- Defender-ball contact:
-  - can bounce the attacker back to the launch wall if no valid slice occurred
+7) DIFFICULTY
+- Difficulty now comes from:
+  - the shrinking center core
+  - moving spikes
+  - late-run arrow hazards
 
 
-7) TIMER / COMBO / COINS
+8) TIMER / COMBO / COINS
 - No heart system.
 - Survival rule:
-  - player must land at least 1 slice every 3.0 seconds
+  - player must land at least `1` core hit every `3.0` seconds
   - timer starts only after the first dash
-  - timer reaching 0 immediately triggers game over
+  - timer reaching `0` immediately triggers game over
 - Low-time feedback:
   - map visually heats up when close to timeout
 - Miss:
   - no point is awarded
-  - combo resets to 0
-  - MISS banner + red flash
+  - combo resets to `0`
+  - `MISS` banner + red flash
 - Coins:
-  - 1 coin per slice
-  - persisted in localStorage
+  - `1` coin per successful core hit
+  - persisted in `localStorage`
 - Record:
-  - best score is saved in localStorage
+  - best score is saved in `localStorage`
   - shown in menu and game-over screen
 
 
-8) HAZARDS
+9) HAZARDS
 - Spikes:
-  - 1st spike unlocks at 5 slices
-  - 2nd spike unlocks at 30 slices
+  - 1st spike unlocks at `5` hits
+  - 2nd spike unlocks at `30` hits
   - spikes move across the arena
-  - hitting a spike bounces attacker back and invalidates the dash
+  - spike collision rebounds the attacker and invalidates the dash
 - Arrows:
-  - unlock at 50 slices
+  - unlock at `50` hits
   - warning lane appears before spawn
   - arrow hit counts as a miss
-
-
-9) BOUNCE RULES
-- Spike contact:
-  - attacker rebounds back toward the launch wall
-  - dash does not count as a slice
-- Defender-ball contact:
-  - attacker rebounds back only if no valid line slice occurred first
-- Arrow contact:
-  - no rebound logic, hit counts as a miss
 
 
 10) ATTACKER SKINS (COSMETIC)
@@ -116,11 +114,11 @@ GAME OVERVIEW (CURRENT BUILD)
   - thick outline + glow aura
 - Skin roster:
   - Neon Ninja: default unlocked
-  - Fire Ninja: 150 coins
-  - Water Ninja: 150 coins
-  - Lightning Ninja: 250 coins
-  - Earth Ninja: 250 coins
-  - Blossom Ninja: 300 coins
+  - Fire Ninja: `150` coins
+  - Water Ninja: `150` coins
+  - Lightning Ninja: `250` coins
+  - Earth Ninja: `250` coins
+  - Blossom Ninja: `300` coins
 - Skin effects are cosmetic only.
 
 
@@ -130,9 +128,9 @@ GAME OVERVIEW (CURRENT BUILD)
   - themed particles
   - meteor-style movement flare
   - afterimages
-- Slice:
+- Core hit:
   - spark burst
-  - line flash / vibration
+  - core pulse / flash
   - warped pop-up banner
   - screen flash + optional shake
 - Arena:
@@ -140,7 +138,7 @@ GAME OVERVIEW (CURRENT BUILD)
   - warm framed outer shell
   - low-time heat shimmer effect
 - Tutorial:
-  - animated slice-path guide from attacker to the line
+  - animated path guide from attacker to the center core
 
 
 12) UI / OVERLAYS
@@ -156,16 +154,16 @@ GAME OVERVIEW (CURRENT BUILD)
 
 
 13) FILE MAP (ACTIVE)
-- index.html
+- `index.html`
   - canvas, HUD, overlays
-- styles.css
+- `styles.css`
   - mobile UI theme, warped banner styling, overlay visuals
-- game.js
-  - gameplay logic, rendering, collisions, hazards, tutorial guide
-- src/
-  - legacy files, not active runtime path
+- `game.js`
+  - gameplay loop, rendering, collision handling, hazards, tutorial guide
+- `src/`
+  - older source files, not the active runtime path for this build
 
 
 14) RUN
-- Open index.html in a browser.
+- Open `index.html` in a browser.
 - No backend required.

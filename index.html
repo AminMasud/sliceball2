@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Line Slice Balls - Endless</title>
+  <title>Sliceball 2 - Endless</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
       <header class="game-header">
         <div class="title-block">
           <p class="eyebrow gameplay-eyebrow">Jungle Arcade</p>
-          <h1 class="game-title">Line Slice Balls</h1>
-          <p class="game-subtitle">Swipe from wall to wall before the timer runs out.</p>
+          <h1 class="game-title">Sliceball 2</h1>
+          <p class="game-subtitle">Swipe wall to wall, strike the center core, and survive the timer.</p>
         </div>
         <div class="score-strip">
           <div class="hud-block combo-block">
@@ -28,7 +28,7 @@
       </header>
 
       <div class="hud-block timer-block">
-        <p class="hud-label">Slice Time</p>
+        <p class="hud-label">Core Time</p>
         <div class="time-bar">
           <div id="timeBarFill" class="time-bar-fill"></div>
         </div>
@@ -37,16 +37,16 @@
 
       <div class="arena-panel">
         <div class="arena-shell">
-          <canvas id="gameCanvas" width="420" height="420" aria-label="Line Slice Balls Endless Mode"></canvas>
+          <canvas id="gameCanvas" width="420" height="420" aria-label="Sliceball 2 Endless Mode"></canvas>
           <div id="screenFlash" class="screen-flash"></div>
           <div id="centerBanner" class="center-banner hidden">MISS</div>
         </div>
-        <p class="arena-caption">Lock a full-length aim line, slice quickly, and keep the defenders from trapping you.</p>
+        <p class="arena-caption">Dash through the center core before the timer expires, then deal with tighter gaps as it shrinks.</p>
       </div>
 
       <div class="hud-block tip-block">
         <p class="hud-label">Flow</p>
-        <p class="tip-copy">Fast swipes keep the rhythm alive. Use the walls to reposition before the center closes in.</p>
+        <p class="tip-copy">Use the walls to line up clean hits. The core gets smaller over time, so the run naturally tightens without extra blockers.</p>
       </div>
     </section>
   </main>
@@ -54,8 +54,8 @@
   <div class="overlay" id="menuOverlay">
     <div class="overlay-card menu-card">
       <p class="eyebrow">Arcade Endless</p>
-      <h1>Line Slice Balls</h1>
-      <p class="overlay-copy">Slice the CPU line every 3 seconds to survive and stack your combo.</p>
+      <h1>Sliceball 2</h1>
+      <p class="overlay-copy">Hit the center core every 3 seconds, grow your combo, and survive the shrinking target.</p>
       <p class="wallet-text" id="menuWalletText">Coins: 0</p>
       <p class="wallet-text" id="menuRecordText">Record: 0</p>
       <div class="overlay-buttons">
