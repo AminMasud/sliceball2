@@ -21,7 +21,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Gameplay
 
 - Two modes are available from the main menu:
-  - `Classic`: no timer, no wall laser, and player dashes ignore spike collisions
+  - `Classic`: no timer, no wall laser, earlier spike spawns, and spike hits end the run
   - `Timed`: the current challenge mode with the timer, spike hits, and wall laser enabled
 - The attacker starts attached to an arena wall.
 - The timer does not begin until the first real dash.
@@ -43,6 +43,7 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 ## Visual Notes
 
 - The arena is a square playfield inside a portrait mobile layout.
+- Smaller target stages shift into new color palettes so they read clearly at a glance.
 - Target splits leave a cut-shell effect on top of the newly spawned children.
 - Small target explosions use extra sparkles, embers, shards, glow rings, and screen feedback.
 - Low time heats up the map visually.
@@ -57,5 +58,5 @@ npx --yes esbuild src\main.js --bundle --format=iife --platform=browser --outfil
 
 ## Persistence
 
-- Coins, owned skins, selected skin, best score, tutorial flags, and screen shake settings persist in `localStorage`.
+- Coins, owned skins, selected skin, best score, tutorial flags, daily reward state, and the vibration/feedback toggle persist in `localStorage`.
 - The selected game mode also persists in `localStorage`.

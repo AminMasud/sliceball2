@@ -61,9 +61,9 @@ Purpose:
 Classic mode:
 - no countdown timer
 - no temporary wall / laser hazard
-- player dashes ignore spike collisions
+- player loses the run on spike contact
 - spikes can still move and affect target balls
-- there is no automatic game over condition
+- spikes unlock earlier than in Timed mode
 
 Timed mode:
 - this is the current challenge mode
@@ -90,7 +90,7 @@ Timed mode:
 10. Minimum-size targets explode and are removed.
 11. When the last live target is gone, spawn one new full-size target and continue the endless wave loop.
 12. In Timed mode, game over occurs immediately when the timer reaches `0`.
-13. In Classic mode, the run continues until the player leaves through the menu.
+13. In Classic mode, game over occurs on spike contact instead of on a timer.
 
 
 6) CONSTANTS THAT DEFINE FEEL
@@ -112,6 +112,11 @@ Timed mode:
   - second at `25` hits
   - third at `60` hits
   - fourth at `100` hits
+- Classic spike unlocks:
+  - first at `5` hits
+  - second at `15` hits
+  - third at `35` hits
+  - fourth at `70` hits
 - Temporary wall unlock in Timed mode:
   - `85` hits
 - Temporary wall timings:
@@ -191,13 +196,14 @@ Shot gating:
 - Player collision uses swept circle checks because both the player and targets move quickly.
 - For every dash frame:
   - collect target hit events for all eligible live targets
-  - in Timed mode, collect the earliest spike hit
+  - collect the earliest spike hit in both modes
   - in Timed mode, collect the temporary wall hit if one exists
 - Sort by impact time `t`.
 - On ties, target hits win over hazards.
 - Process sorted events in order:
   - target hit -> split or explode target and continue
   - in Timed mode, spike hit -> bounce player back toward launch wall and stop the chain
+  - in Classic mode, spike hit -> end the run immediately
   - in Timed mode, temporary wall hit -> same interruption behavior as a miss and stop the chain
 - A dash can cut multiple pre-existing targets in one pass.
 
@@ -247,7 +253,8 @@ Explosion visual:
   - dash is treated as a miss
 - In Classic mode:
   - spikes still move and collide with target balls
-  - the player dash ignores spike collisions completely
+  - player spike contact ends the run immediately
+  - spike unlock thresholds are earlier than in Timed mode
 
 
 13) TEMPORARY WALL HAZARD
@@ -298,13 +305,16 @@ One-time reposition hint:
 16) VISUAL STYLE
 - Warm jungle / carved wood mobile arcade theme
 - Arena interior is bright and near-white
-- Target balls use layered warm radial gradients with aura, outline, and pulse ring
+- Target balls shift palette by size stage:
+  - large = warm amber
+  - medium = lime green
+  - small = cyan
 - Feedback stack:
   - dash trails
   - particles
   - afterimages
   - wall attach pulses
-  - warped center banners like `HIT!`, `MISS`, `NINJA SKILLS`
+  - warped center banners like `HIT!`, `TIME UP`, `NINJA SKILLS`
 - The low-time arena gets a heated shimmer treatment
 
 
@@ -315,6 +325,7 @@ Storage key:
 Persisted profile fields:
 - `coins`
 - `selectedMode`
+- `dailyReward.lastClaimDate`
 - `selectedSkin`
 - `ownedSkins`
 - `records.bestScore`
@@ -324,6 +335,8 @@ Persisted profile fields:
 Behavior:
 - ignore storage failures safely
 - update best score when a run ends
+- allow one daily coin reward claim per local calendar day
+- the single feedback toggle controls both screen shake and device vibration
 
 
 18) SHOP AND COSMETICS
@@ -393,11 +406,12 @@ Behavior:
 - one dash can cut multiple pre-existing targets
 - children created by the current dash cannot be hit again by that same dash
 - spikes bounce with targets
-- spikes interrupt the player dash only in Timed mode
+- spikes interrupt the player dash in Timed mode and end the run in Classic mode
 - temporary wall remains player-only and Timed-only
 - combo, score, timer, coins, record, shop, and options still work
+- daily reward card can be claimed once per day
 - low-time heat effect still works in Timed mode
-- Classic mode has no timer-based loss state
+- Classic mode has no timer-based loss state and instead loses on spike contact
 
 
 22) WHAT MUST NOT HAPPEN

@@ -47,7 +47,7 @@
         <div class="arena-shell">
           <canvas id="gameCanvas" width="420" height="420" aria-label="Sliceball 2 Endless Mode"></canvas>
           <div id="screenFlash" class="screen-flash"></div>
-          <div id="centerBanner" class="center-banner hidden">MISS</div>
+          <div id="centerBanner" class="center-banner hidden">HIT!</div>
         </div>
       </section>
 
@@ -125,16 +125,17 @@
         </button>
       </div>
 
-      <section class="reward-card">
+      <button id="dailyRewardButton" class="reward-card" type="button">
         <div class="reward-icon">
           <span class="material-symbols-outlined">card_giftcard</span>
         </div>
         <div class="reward-copy">
-          <span class="overlay-kicker">Daily Reward</span>
-          <strong>Collect 50 Coins</strong>
+          <span id="dailyRewardKicker" class="overlay-kicker">Daily Reward</span>
+          <strong id="dailyRewardTitle">Collect 50 Coins</strong>
+          <span id="dailyRewardStatus" class="reward-status">Tap to claim today&apos;s coins.</span>
         </div>
         <span class="material-symbols-outlined reward-arrow">chevron_right</span>
-      </section>
+      </button>
 
       <p class="menu-wallet">Coins <span id="menuWalletText">0</span></p>
     </div>
@@ -175,25 +176,12 @@
         <div class="option-row">
           <span class="option-icon material-symbols-outlined">vibration</span>
           <div class="option-copy">
-            <strong>Screen Shake</strong>
-            <span>Tactile kinetic feedback</span>
+            <strong>Vibration</strong>
+            <span>Device haptics and shake feedback</span>
           </div>
           <button id="shakeToggleButton" type="button">On</button>
         </div>
       </div>
-
-      <section class="options-grid">
-        <article class="pref-card pref-card-active">
-          <span class="material-symbols-outlined">auto_awesome</span>
-          <strong>High Quality</strong>
-          <span class="pref-bar"><span></span></span>
-        </article>
-        <article class="pref-card">
-          <span class="material-symbols-outlined">battery_saver</span>
-          <strong>Battery Save</strong>
-          <span class="pref-bar"><span class="pref-bar-empty"></span></span>
-        </article>
-      </section>
 
       <div class="overlay-buttons">
         <button id="optionsBackButton" type="button">Back</button>

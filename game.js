@@ -10,7 +10,9 @@
   const SLICE_TIMEOUT_SECONDS = 3;
   const LOW_TIME_HEAT_THRESHOLD = 0.28;
   const SPIKE_UNLOCK_SLICES = Object.freeze([10, 25, 60, 100]);
+  const CLASSIC_SPIKE_UNLOCK_SLICES = Object.freeze([5, 15, 35, 70]);
   const WALL_UNLOCK_SLICES = 85;
+  const DAILY_REWARD_COINS = 50;
   const SPIKE_MIN_SEPARATION = 160;
   const SPIKE_SPEED_BASE = 76;
   const SPIKE_SPEED_SCALE = 0.7;
@@ -150,6 +152,10 @@
     energyDots: document.getElementById("energyDots"),
     screenFlash: document.getElementById("screenFlash"),
     centerBanner: document.getElementById("centerBanner"),
+    dailyRewardButton: document.getElementById("dailyRewardButton"),
+    dailyRewardKicker: document.getElementById("dailyRewardKicker"),
+    dailyRewardTitle: document.getElementById("dailyRewardTitle"),
+    dailyRewardStatus: document.getElementById("dailyRewardStatus"),
     menuOverlay: document.getElementById("menuOverlay"),
     shopOverlay: document.getElementById("shopOverlay"),
     optionsOverlay: document.getElementById("optionsOverlay"),
@@ -271,6 +277,9 @@
       selectedMode: GAME_MODES.TIMED,
       selectedSkin: SKINS[0].id,
       ownedSkins: { [SKINS[0].id]: true },
+      dailyReward: {
+        lastClaimDate: "",
+      },
       records: {
         bestScore: 0,
       },
@@ -331,6 +340,11 @@
         selectedMode: parsed.selectedMode === GAME_MODES.CLASSIC ? GAME_MODES.CLASSIC : GAME_MODES.TIMED,
         selectedSkin,
         ownedSkins,
+        dailyReward: {
+          lastClaimDate: typeof parsed.dailyReward?.lastClaimDate === "string"
+            ? parsed.dailyReward.lastClaimDate
+            : "",
+        },
         records: {
           bestScore,
         },
@@ -338,7 +352,7 @@
           repositionHintSeen: parsed.tutorials?.repositionHintSeen === true,
         },
         options: {
-          screenShake: parsed.options?.screenShake !== false,
+          screenShake: parsed.options?.screenShake !== false && parsed.options?.vibration !== false,
         },
       };
     } catch {
@@ -373,6 +387,69 @@
 
   function isTimedMode(mode = getCurrentMode()) {
     return mode === GAME_MODES.TIMED;
+  }
+
+  function getTodayDateKey() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function canClaimDailyReward() {
+    return state.profile.dailyReward.lastClaimDate !== getTodayDateKey();
+  }
+
+  function updateDailyRewardUi() {
+    if (!dom.dailyRewardButton || !dom.dailyRewardTitle || !dom.dailyRewardStatus) {
+      return;
+    }
+
+    const claimable = canClaimDailyReward();
+    dom.dailyRewardButton.disabled = !claimable;
+    if (dom.dailyRewardKicker) {
+      dom.dailyRewardKicker.textContent = claimable ? "Daily Reward" : "Daily Reward Claimed";
+    }
+    dom.dailyRewardTitle.textContent = claimable
+      ? `Collect ${DAILY_REWARD_COINS} Coins`
+      : "Come Back Tomorrow";
+    dom.dailyRewardStatus.textContent = claimable
+      ? "Tap to claim today's coins."
+      : `You already collected ${DAILY_REWARD_COINS} coins today.`;
+  }
+
+  function claimDailyReward() {
+    if (!canClaimDailyReward()) {
+      updateDailyRewardUi();
+      return;
+    }
+
+    state.profile.coins += DAILY_REWARD_COINS;
+    state.profile.dailyReward.lastClaimDate = getTodayDateKey();
+    saveProfile();
+    updateCoinDisplays();
+    updateDailyRewardUi();
+    triggerHaptic(45);
+    showBanner(`+${DAILY_REWARD_COINS} COINS`, "slice");
+  }
+
+  function triggerHaptic(pattern) {
+    if (!state.profile.options.screenShake) {
+      return;
+    }
+
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate(pattern);
+      }
+    } catch {
+      // Ignore vibrate API restrictions.
+    }
+  }
+
+  function getSpikeUnlockSlices(mode = state.run.mode) {
+    return isClassicMode(mode) ? CLASSIC_SPIKE_UNLOCK_SLICES : SPIKE_UNLOCK_SLICES;
   }
 
   function getSkinById(id) {
@@ -789,6 +866,7 @@
     if (dom.recordScore && state.overlay !== "gameover") {
       dom.recordScore.textContent = String(bestScore);
     }
+    updateDailyRewardUi();
   }
 
   function updateBestStreakDisplay() {
@@ -1027,20 +1105,17 @@
   }
 
   function triggerWholeScreenVibration() {
+    if (!state.profile.options.screenShake) {
+      return;
+    }
+
     document.body.classList.remove("ninja-vibe");
     void document.body.offsetWidth;
     document.body.classList.add("ninja-vibe");
     window.setTimeout(() => {
       document.body.classList.remove("ninja-vibe");
     }, 370);
-
-    try {
-      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-        navigator.vibrate([65, 45, 65]);
-      }
-    } catch {
-      // Ignore vibrate API restrictions.
-    }
+    triggerHaptic([65, 45, 65]);
   }
 
   function triggerNinjaSkills() {
@@ -1546,10 +1621,11 @@
       "TRIPLE SPIKES",
       "SPIKE SWARM",
     ];
+    const unlockSlices = getSpikeUnlockSlices(state.run.mode);
 
     while (
-      state.obstacles.length < SPIKE_UNLOCK_SLICES.length &&
-      state.run.slices >= SPIKE_UNLOCK_SLICES[state.obstacles.length]
+      state.obstacles.length < unlockSlices.length &&
+      state.run.slices >= unlockSlices[state.obstacles.length]
     ) {
       state.run.obstacleUnlocked = true;
       state.obstacles.push(createObstacle(state.obstacles.length, state.obstacles));
@@ -1653,6 +1729,7 @@
     emitSliceSparks(impact, "rgba(255, 180, 122, 0.95)", 15);
     triggerFlash("rgba(255, 136, 97, 0.55)", 0.92, 0.16);
     triggerShake(0.17, 7);
+    triggerHaptic([42, 28, 42]);
 
     state.arrows.active = null;
     state.arrows.timer = nextArrowDelay();
@@ -1889,7 +1966,24 @@
     updateComboDisplay();
     triggerFlash("rgba(255, 65, 105, 0.58)", 1, 0.18);
     triggerShake(0.16, 6);
-    showBanner("MISS", "miss");
+    triggerHaptic([24, 22, 24]);
+  }
+
+  function handleSpikeCollision(hit) {
+    if (isClassicMode(state.run.mode)) {
+      emitSliceSparks(
+        { x: hit.contactX, y: hit.contactY },
+        "rgba(255, 184, 116, 0.98)",
+        20,
+      );
+      triggerFlash("rgba(255, 110, 76, 0.6)", 1, 0.18);
+      triggerShake(0.2, 8);
+      triggerHaptic([65, 30, 65]);
+      enterGameOver();
+      return;
+    }
+
+    triggerObstacleBounce(hit);
   }
 
   function createSplitChildren(target, normal) {
@@ -1958,6 +2052,7 @@
     const comboBoost = state.effects.comboBoost;
     triggerShake(0.22 + (comboBoost * 0.04), 8 + (state.run.difficulty * 0.04) + (comboBoost * 4.8));
     triggerFlash("rgba(255, 255, 255, 0.65)", 0.9 + (comboBoost * 0.08), 0.12 + (comboBoost * 0.01));
+    triggerHaptic(16);
     const ninjaReady = (
       state.run.quickSliceChain >= NINJA_CHAIN_REQUIRED &&
       (now - state.run.lastNinjaAt) >= NINJA_EVENT_COOLDOWN_MS
@@ -2057,6 +2152,7 @@
       dom.recordBadge.classList.toggle("hidden", !isNewRecord);
     }
 
+    triggerHaptic([60, 35, 60]);
     setOverlay("gameover");
     updateCoinDisplays();
     if (isNewRecord) {
@@ -2382,7 +2478,7 @@
 
       events.push(...detectTargetHits(previous, dashEnd, eligibleTargets));
 
-      if (isTimedMode(state.run.mode) && state.run.obstacleUnlocked && state.obstacles.length) {
+      if (state.run.obstacleUnlocked && state.obstacles.length) {
         const obstacleHit = detectObstacleHit(previous, dashEnd);
         if (obstacleHit) {
           events.push({ type: "obstacle", hit: obstacleHit });
@@ -2417,7 +2513,10 @@
           }
 
           if (event.type === "obstacle") {
-            triggerObstacleBounce(event.hit);
+            handleSpikeCollision(event.hit);
+            if (!state.inRun) {
+              return;
+            }
             break;
           }
 
@@ -2647,6 +2746,42 @@
     const wobble = options.wobble ?? 0;
     const displayRadius = radius + wobble + (pulse * 6);
     const auraRadius = displayRadius + 16 + (comboBoost * 2.2);
+    const stage = getTargetStageForRadius(radius);
+
+    let fill0 = "#fffef1";
+    let fill1 = "#ffe8a9";
+    let fill2 = "#ffb346";
+    let fill3 = "#d96716";
+    let auraInner = [255, 246, 215];
+    let auraMid = [255, 181, 86];
+    let shadow = [255, 173, 68];
+    let outline = [127, 56, 12];
+    let ring = [255, 247, 224];
+    let pulseRing = [255, 239, 200];
+
+    if (stage >= 2) {
+      fill0 = "#f3ffff";
+      fill1 = "#b6fbff";
+      fill2 = "#4dd6ff";
+      fill3 = "#1777c8";
+      auraInner = [224, 255, 252];
+      auraMid = [74, 223, 255];
+      shadow = [88, 218, 255];
+      outline = [15, 88, 142];
+      ring = [230, 255, 255];
+      pulseRing = [176, 250, 255];
+    } else if (stage >= 1) {
+      fill0 = "#fffff1";
+      fill1 = "#efff9f";
+      fill2 = "#a6ea3f";
+      fill3 = "#508f18";
+      auraInner = [248, 255, 214];
+      auraMid = [187, 244, 88];
+      shadow = [188, 242, 91];
+      outline = [86, 112, 8];
+      ring = [250, 255, 224];
+      pulseRing = [232, 255, 154];
+    }
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -2658,9 +2793,9 @@
       y,
       auraRadius,
     );
-    aura.addColorStop(0, `rgba(255, 246, 215, ${0.28 + (flash * 0.14)})`);
-    aura.addColorStop(0.55, `rgba(255, 181, 86, ${0.18 + (flash * 0.16)})`);
-    aura.addColorStop(1, "rgba(255, 181, 86, 0)");
+    aura.addColorStop(0, `rgba(${auraInner[0]}, ${auraInner[1]}, ${auraInner[2]}, ${0.28 + (flash * 0.14)})`);
+    aura.addColorStop(0.55, `rgba(${auraMid[0]}, ${auraMid[1]}, ${auraMid[2]}, ${0.18 + (flash * 0.16)})`);
+    aura.addColorStop(1, `rgba(${auraMid[0]}, ${auraMid[1]}, ${auraMid[2]}, 0)`);
     ctx.fillStyle = aura;
     ctx.beginPath();
     ctx.arc(x, y, auraRadius, 0, Math.PI * 2);
@@ -2674,31 +2809,31 @@
       y,
       displayRadius,
     );
-    orb.addColorStop(0, "#fffef1");
-    orb.addColorStop(0.2, "#ffe8a9");
-    orb.addColorStop(0.58, "#ffb346");
-    orb.addColorStop(1, "#d96716");
+    orb.addColorStop(0, fill0);
+    orb.addColorStop(0.2, fill1);
+    orb.addColorStop(0.58, fill2);
+    orb.addColorStop(1, fill3);
     ctx.fillStyle = orb;
-    ctx.shadowColor = `rgba(255, 173, 68, ${0.35 + (flash * 0.25)})`;
+    ctx.shadowColor = `rgba(${shadow[0]}, ${shadow[1]}, ${shadow[2]}, ${0.35 + (flash * 0.25)})`;
     ctx.shadowBlur = 20 + (pulse * 10) + (comboBoost * 5);
     ctx.beginPath();
     ctx.arc(x, y, displayRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = `rgba(127, 56, 12, ${0.6 + (flash * 0.3)})`;
+    ctx.strokeStyle = `rgba(${outline[0]}, ${outline[1]}, ${outline[2]}, ${0.6 + (flash * 0.3)})`;
     ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.arc(x, y, displayRadius, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.strokeStyle = `rgba(255, 247, 224, ${0.4 + (flash * 0.28)})`;
+    ctx.strokeStyle = `rgba(${ring[0]}, ${ring[1]}, ${ring[2]}, ${0.4 + (flash * 0.28)})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(x, y, Math.max(10, displayRadius * 0.72), 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.strokeStyle = `rgba(255, 239, 200, ${0.26 + (pulse * 0.18)})`;
+    ctx.strokeStyle = `rgba(${pulseRing[0]}, ${pulseRing[1]}, ${pulseRing[2]}, ${0.26 + (pulse * 0.18)})`;
     ctx.lineWidth = 2.6;
     ctx.beginPath();
     ctx.arc(x, y, displayRadius + 10 + (pulse * 8), 0, Math.PI * 2);
@@ -3673,6 +3808,12 @@
     });
   }
 
+  if (dom.dailyRewardButton) {
+    dom.dailyRewardButton.addEventListener("click", () => {
+      claimDailyReward();
+    });
+  }
+
   dom.shopButton.addEventListener("click", () => {
     beginShop("menu");
   });
@@ -3713,6 +3854,7 @@
   updateModeUi();
   updateSliceTimerDisplay();
   updateShakeToggle();
+  updateDailyRewardUi();
   buildShop();
   showMenu();
   window.requestAnimationFrame(frame);

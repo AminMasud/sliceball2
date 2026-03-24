@@ -641,15 +641,13 @@ body.run-active .bottom-nav {
 }
 
 .menu-actions,
-.gameover-secondary,
-.options-grid {
+.gameover-secondary {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
 
 .soft-action,
-.pref-card,
 .shop-item,
 .stat-cell {
   background: rgba(255, 255, 255, 0.54);
@@ -681,10 +679,19 @@ body.run-active .bottom-nav {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 18px 18px 18px 16px;
+  border: 0;
   border-radius: 34px;
   background: linear-gradient(135deg, #d6f6b0 0%, #baf19d 100%);
   box-shadow: 0 18px 34px rgba(125, 176, 88, 0.16);
+  text-align: left;
+  cursor: pointer;
+}
+
+.reward-card:disabled {
+  opacity: 0.72;
+  cursor: default;
 }
 
 .reward-icon {
@@ -702,6 +709,14 @@ body.run-active .bottom-nav {
   margin-top: 4px;
   font-size: 1.02rem;
   color: #32552f;
+}
+
+.reward-status {
+  display: block;
+  margin-top: 4px;
+  color: rgba(50, 85, 47, 0.78);
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 .reward-arrow {
@@ -997,42 +1012,6 @@ body.run-active .bottom-nav {
   min-width: 78px;
 }
 
-.pref-card {
-  padding: 22px 18px;
-  border-radius: 34px;
-  display: grid;
-  gap: 10px;
-}
-
-.pref-card .material-symbols-outlined {
-  color: var(--leaf);
-}
-
-.pref-card strong {
-  font-family: "Space Grotesk", sans-serif;
-  font-size: 1.16rem;
-}
-
-.pref-bar {
-  display: block;
-  height: 6px;
-  border-radius: 999px;
-  background: #e3dfd8;
-  overflow: hidden;
-}
-
-.pref-bar span {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--leaf);
-}
-
-.pref-bar-empty {
-  width: 0;
-}
-
 .record-badge {
   justify-self: center;
   margin: 0;
@@ -1263,14 +1242,12 @@ button:active {
   .stats-row,
   .menu-actions,
   .gameover-secondary,
-  .options-grid,
   .stats-grid {
     gap: 12px;
   }
 
   .stat-pod,
   .soft-action,
-  .pref-card,
   .shop-item,
   .stat-cell {
     border-radius: 28px;
